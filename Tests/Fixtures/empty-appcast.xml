@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss version="2.0"><channel>
+  <title>万年历软件更新</title>
+  <link>https://github.com/zbuzhi/calendar-holidays/releases</link>
+  <description>macOS 万年历稳定版更新。首个安装包发布前此清单为空。</description>
+  <language>zh-cn</language>
+</channel></rss><!-- sparkle-signatures:
+edSignature: FA+GPJ8pX/KIv6XnQhLzEI+nQjvmu39lP4zd/VWi2oLjTvfZbteLQstsQtShFvA5eFknss4DoMk/3FZD1JXvDQ==
+length: 577
+-->
