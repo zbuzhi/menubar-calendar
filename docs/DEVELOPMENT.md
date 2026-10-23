@@ -173,4 +173,4 @@ swift scripts/make-icon.swift .build/AppIcon.iconset Resources/AppIcon.icns
 python3 scripts/render-readme-media.py
 ```
 
-输出为 `docs/assets/hero.png`、`docs/assets/menubar.png` 与 `docs/assets/demo.gif`，中间帧存放于 `.build/readme-frames/`。脚本会编译独立的演示程序，展示日期悬停、主题色、深浅主题与显示开关。若只重新压缩现有帧，可添加 `--skip-render`。
+输出为 `docs/assets/hero.png` 与 `docs/assets/demo.gif`，中间帧存放于 `.build/readme-frames/`。脚本会编译独立的演示程序，展示日期悬停、主题色、深浅主题与显示开关。若只重新压缩现有帧，可添加 `--skip-render`。

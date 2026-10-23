@@ -94,51 +94,6 @@ def cover():
 
 
 
-def menubar_preview():
-    width, height = 1280, 930
-    canvas = Image.new('RGB', (width, height))
-    pixels = canvas.load()
-    for y in range(height):
-        for x in range(width):
-            glow = max(0, 1-((x-900)**2+(y-380)**2)**0.5/1000)
-            pixels[x,y] = (int(190+22*glow-y/height*18),
-                           int(211+17*glow-y/height*10), int(231+12*glow))
-    canvas = canvas.convert('RGBA')
-    draw = ImageDraw.Draw(canvas)
-    draw.rectangle((0,0,width,35), fill=(235,244,251,255))
-    draw.line((0,35,width,35), fill=(159,183,205,120))
-    draw.text((27,8), '访达', font=font(16,True), fill='#19334D')
-    x=92
-    for label in ('文件','编辑','显示','前往','窗口','帮助'):
-        draw.text((x,9),label,font=font(14),fill='#304B64');x+=58
-    draw.rounded_rectangle((1010,3,1253,32),radius=7,fill='#D3E5F5')
-    draw.rounded_rectangle((1030,10,1044,24),radius=3,outline='#294B6E',width=1)
-    draw.line((1030,14,1044,14),fill='#294B6E',width=1)
-    draw.text((1062,8),'10月23日 周五',font=font(15,True),fill='#193B60')
-    draw.rounded_rectangle((947,11,974,24),radius=3,outline='#36536F',width=1)
-    draw.rectangle((950,14,969,21),fill='#36536F')
-    draw.rectangle((975,15,977,20),fill='#36536F')
-    for radius in (6,11,16):
-        draw.arc((899-radius,22-radius,899+radius,22+radius),205,335,fill='#36536F',width=2)
-    draw.ellipse((897,21,901,25),fill='#36536F')
-    draw.text((74,274),'点一下，展开日历。',font=font(38,True),fill='#183C60')
-    draw.multiline_text((76,347),'农历、节气、假期和实时时钟，\n在菜单栏里，随时查看。',font=font(24),fill='#456785',spacing=16)
-    draw.text((76,782),'菜单栏展开示意 · 原生月历界面',font=font(16),fill='#567894')
-    x,y=832,47
-    shadow=Image.new('RGBA',canvas.size)
-    ImageDraw.Draw(shadow).rounded_rectangle((x-4,y+12,x+424,y+770),radius=25,fill=(27,58,87,90))
-    canvas=Image.alpha_composite(canvas,shadow.filter(ImageFilter.GaussianBlur(21)))
-    panel=Image.open(FRAMES/'calendar-light.png').convert('RGBA')
-    panel=Image.alpha_composite(Image.new('RGBA',panel.size,'#FAFAFA'),panel)
-    mask=Image.new('L',panel.size)
-    ImageDraw.Draw(mask).rounded_rectangle((0,0,419,749),radius=22,fill=255)
-    canvas.paste(panel,(x,y),mask)
-    draw=ImageDraw.Draw(canvas)
-    cursor=[(1195,20),(1195,44),(1201,37),(1207,50),(1213,47),(1207,35),(1217,35)]
-    draw.polygon(cursor,fill='#182D41',outline='white',width=2)
-    canvas.convert('RGB').save(ASSETS/'menubar.png',optimize=True)
-
-
 def animation():
     timeline = json.loads((FRAMES / 'frames.json').read_text())
     assert set(frame['stage'] for frame in timeline) == set(range(13)), 'Incomplete demonstration'
@@ -171,8 +126,7 @@ if __name__ == '__main__':
     if not args.skip_render:
         render()
     cover()
-    menubar_preview()
     animation()
-    for name in ('hero.png', 'menubar.png', 'demo.gif'):
+    for name in ('hero.png', 'demo.gif'):
         path = ASSETS / name
         print(name, f'{path.stat().st_size/1024/1024:.2f} MiB')
