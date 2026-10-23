@@ -9,7 +9,8 @@ import Sparkle
     @Published private(set) var automaticChecks = false
     @Published private(set) var lastChecked: Date?
     @Published private(set) var status = ""
-    var beforeManualCheck: (() -> Void)?
+    @Published private(set) var checking = false
+    @Published private(set) var availableVersion: String?
     private var subscriptions = Set<AnyCancellable>()
     private var started = false
     private lazy var controller = SPUStandardUpdaterController(startingUpdater:false, updaterDelegate:self, userDriverDelegate:nil)
@@ -38,22 +39,33 @@ import Sparkle
     }
 
     func check() {
-        guard canCheck else { return }
-        beforeManualCheck?()
+        guard canCheck, !controller.updater.sessionInProgress, !checking else { return }
+        availableVersion = nil
+        checking = true
         status = "正在检查软件更新…"
+        // Probe through Sparkle without presenting its modal checking/result UI.
+        controller.updater.checkForUpdateInformation()
+    }
+
+    func installUpdate() {
+        guard canCheck, !checking, availableVersion != nil else { return }
         controller.checkForUpdates(nil)
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        availableVersion = item.displayVersionString
         status = "发现新版本 \(item.displayVersionString)"
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        availableVersion = nil
         status = "当前已是最新版本"
     }
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        checking = false
         if let error = error as NSError? {
+            availableVersion = nil
             if error.domain == SUSparkleErrorDomain && error.code == Int(SUError.noUpdateError.rawValue) {
                 status = "当前已是最新版本"
             } else if error.domain == SUSparkleErrorDomain && error.code == Int(SUError.installationCanceledError.rawValue) {
@@ -74,12 +86,18 @@ struct SoftwareUpdateSettings: View {
             HStack {
                 Text("当前版本 \(SoftwareUpdater.version)").font(.system(size:12))
                 Spacer()
-                Button("检查软件更新…") { updater.check() }.disabled(!updater.canCheck)
+                Button(updater.checking ? "检查中…" : "检查更新") { updater.check() }.disabled(!updater.canCheck || updater.checking)
             }
             Toggle("自动检查软件更新",isOn:Binding(get:{updater.automaticChecks},set:{updater.setAutomaticChecks($0)}))
-            Text(updater.status.isEmpty
+            HStack(spacing:8) {
+                if updater.checking { ProgressView().controlSize(.small).scaleEffect(0.7).frame(width:16,height:16) }
+                Text(updater.status.isEmpty
                  ? (updater.automaticChecks ? "每天检查一次，安装前由你确认" : "自动检查已关闭，仍可手动检查")
                  : updater.status).font(.system(size:11)).foregroundStyle(.secondary)
+            }.frame(minHeight:20,alignment:.leading).accessibilityElement(children:.combine)
+            if let version = updater.availableVersion, !updater.checking {
+                Button("查看并安装 \(version)…") { updater.installUpdate() }.disabled(!updater.canCheck)
+            }
             if let date = updater.lastChecked {
                 Text("上次检查：\(date.formatted(date:.abbreviated,time:.shortened))")
                     .font(.system(size:10)).foregroundStyle(.secondary)

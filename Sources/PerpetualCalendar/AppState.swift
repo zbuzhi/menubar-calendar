@@ -2,51 +2,14 @@ import SwiftUI
 import CalendarCore
 import ServiceManagement
 
-struct SavedFormat: Codable, Identifiable {
-    var id = UUID()
-    var name: String
-    var template: String
-}
-struct Preferences: Codable {
-    var theme = "system"
-    var material = "glass"
-    var backing = 0.12
-    var seasonal = false
-    var accent = "blue"
-    var compact = true
-    var lunar = true
-    var festivals = true
-    var holidays = true
-    var zodiac = "icon"
-    var termIcons = true
-    var zodiacLeft = true
-    var iconSize = 6.0
-    var mondayFirst = true
-    var isoWeek = true
-    var showYear = true
-    var showGanZhi = false
-    var showDayProgress = true
-    var showWeek = true
-    var showCapsule = true
-    var lunarProgress = false
-    var showMoon = true
-    var showNotes = true
-    var showHolidayCountdown = true
-    var clock = true
-    var traditional = "ke"
-    var motion = "soft"
-    var menuTemplate = "{M}月{d}日 {weekShort} {HH}:{mm}"
-    var clockTemplate = "{HH}:{mm}:{ss}"
-    var copyTemplate = "{yyyy}-{MM}-{dd} {HH}:{mm}:{ss}"
-    var favorites: [SavedFormat] = []
-}
-
 @MainActor final class AppState: ObservableObject {
     @Published var preferences: Preferences { didSet { savePreferences() } }
     @Published var selected = Date()
     @Published var month = Date() { didSet { if holidayUpdatesEnabled { refreshHolidays() } } }
     @Published var annual = false
     @Published var settingsPresented = false
+    @Published var settingsTab = "appearance"
+    @Published var formatTarget = "menu"
     @Published var settingsOnLeft = true
     @Published var settingsDock: SettingsDock = .left
     @Published var calendarViewportHeight: CGFloat?
@@ -68,6 +31,7 @@ struct Preferences: Codable {
     private let holidayRepository = HolidayRepository()
     let softwareUpdater = SoftwareUpdater()
     var onSettings: (() -> Void)?
+    var onShowSettings: (() -> Void)?
     var onPreferencesChange: (() -> Void)?
     var onPin: (() -> Void)?
     private var clearToast: Task<Void,Never>?
@@ -79,6 +43,8 @@ struct Preferences: Codable {
         preferences = loaded
         notes = defaults.dictionary(forKey:"notes.v1") as? [String:String] ?? [:]
     }
+    var usesBoldText: Bool { preferences.boldText ?? false }
+    func textWeight(_ normal: Font.Weight = .regular) -> Font.Weight { usesBoldText ? .bold : normal }
     var effectiveIconSize: Double { CalendarMetrics.iconSize(preferences.iconSize) }
     var calendarPanelHeight: CGFloat {
         let screen = availableHeight
@@ -123,6 +89,11 @@ struct Preferences: Codable {
         set { let key = engine.key(selected); if newValue.isEmpty { notes.removeValue(forKey:key) } else { notes[key] = newValue } }
     }
     var selectedYear: Int { engine.calendar.component(.year,from:month) }
+    func openSettings(tab: String, target: String? = nil) {
+        settingsTab = tab
+        if let target { formatTarget = target }
+        onShowSettings?()
+    }
     func savePreferences() {
         if let data = try? JSONEncoder().encode(preferences) { defaults.set(data,forKey:"preferences.v1") }
         onPreferencesChange?()

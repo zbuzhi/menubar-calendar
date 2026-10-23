@@ -54,6 +54,50 @@ struct JellySegments<Value: Hashable>: View {
     }
 }
 
+/// Compact, named destinations with one shared animated selection surface.
+struct SettingsNavigation: View {
+    @Binding var selection: String
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @Namespace private var pill
+    private let items = [
+        ("appearance","外观","paintpalette","主题、玻璃、字体与动效"),
+        ("calendar","日历","calendar","月历内容、日期详情与历法"),
+        ("formats","时间","clock","底部时钟、菜单栏与复制格式"),
+        ("general","通用","gearshape","登录启动、小记备份与数据说明"),
+        ("updates","更新","arrow.triangle.2.circlepath","软件版本与节假日数据")
+    ]
+    var body: some View {
+        let palette = SettingsPalette(scheme)
+        VStack(alignment:.leading,spacing:9) {
+            HStack(spacing:2) {
+                ForEach(items,id:\.0) { item in
+                    Button { withAnimation(JellyAnimation.motion(reduced)) { selection = item.0 } } label: {
+                        VStack(spacing:5) {
+                            Image(systemName:item.2).font(.system(size:14,weight:.medium))
+                            Text(item.1).font(.system(size:11,weight:selection == item.0 ? .semibold : .regular))
+                        }
+                        .foregroundStyle(selection == item.0 ? palette.text : palette.secondary)
+                        .frame(maxWidth:.infinity).frame(height:46)
+                        .background {
+                            if selection == item.0 {
+                                RoundedRectangle(cornerRadius:9).fill(palette.selection)
+                                    .shadow(color:.black.opacity(0.07),radius:2,y:1)
+                                    .matchedGeometryEffect(id:"tab",in:pill)
+                            }
+                        }.contentShape(RoundedRectangle(cornerRadius:9))
+                    }.buttonStyle(.plain).help(item.3)
+                        .accessibilityLabel(item.1+"，"+item.3)
+                        .accessibilityAddTraits(selection == item.0 ? .isSelected : [])
+                }
+            }.padding(3).background(palette.track,in:RoundedRectangle(cornerRadius:12))
+            Text(items.first(where:{$0.0 == selection})?.3 ?? "")
+                .font(.system(size:10)).foregroundStyle(palette.secondary)
+                .padding(.horizontal,3)
+        }
+    }
+}
+
 struct JellyToggleStyle: ToggleStyle {
     @EnvironmentObject private var state: AppState
     @Environment(\.colorScheme) private var scheme

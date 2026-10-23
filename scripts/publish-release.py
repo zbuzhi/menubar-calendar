@@ -51,7 +51,7 @@ def publish(directory, make_public):
         print(f'草稿安装包已上传并核对；尚未推送给用户：https://github.com/{repo}/releases')
         return
     gh('release', 'edit', tag, '--repo', repo, '--draft=false', '--latest')
-    payload = {'message': f'Publish signed app update {meta["version"]}', 'branch': 'main',
+    payload = {'message': f'发布 {meta["version"]}', 'branch': 'main',
                'sha': old['sha'], 'content': base64.b64encode(feed.read_bytes()).decode('ascii')}
     result = gh('api', f'repos/{feed_repo}/contents/updates/appcast.xml', '--method', 'PUT', '--input', '-',
                 input_text=json.dumps(payload), check=False)

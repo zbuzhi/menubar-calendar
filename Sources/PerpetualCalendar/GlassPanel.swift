@@ -35,7 +35,9 @@ struct PanelBackground: View {
     }
     @ViewBuilder private var nativeGlass: some View {
         if #available(macOS 26.0, *) {
-            Color.clear.glassEffect(.clear, in:RoundedRectangle(cornerRadius:22))
+            let glass: Glass = state.preferences.glassStyle == "regular" ? .regular : .clear
+            let strength = min(1,max(0,state.preferences.glassTint ?? 0))
+            Color.clear.glassEffect(glass.tint(strength > 0 ? state.selectionColor.opacity(strength * 0.18) : nil), in:RoundedRectangle(cornerRadius:22))
         } else { VisualMaterial() }
     }
 }

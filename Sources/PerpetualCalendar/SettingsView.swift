@@ -6,7 +6,12 @@ struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.colorScheme) private var inheritedScheme
     @Environment(\.accessibilityReduceMotion) private var reduced
-    @LocalState<String> private var tab = "appearance"
+    @LocalState<String> private var previewTab = "appearance"
+    private let initialTab: String?
+    private var tab: String { initialTab == nil ? state.settingsTab : previewTab }
+    private var tabSelection: Binding<String> {
+        Binding(get:{tab},set:{ if initialTab == nil { state.settingsTab = $0 } else { previewTab = $0 } })
+    }
     @LocalState<Bool> private var moreDetails = false
     @LocalState<Bool> private var moreRules = false
     @LocalState<Bool> private var dataInfo = false
@@ -14,8 +19,9 @@ struct SettingsView: View {
     var embedded: Bool
     var panelWidth: CGFloat
     var panelHeight: CGFloat
-    init(initialTab: String = "appearance", embedded: Bool = false, width: CGFloat = 620, height: CGFloat = 690) {
-        _tab = LocalState(wrappedValue:initialTab)
+    init(initialTab: String? = nil, embedded: Bool = false, width: CGFloat = 620, height: CGFloat = 690) {
+        self.initialTab = initialTab
+        _previewTab = LocalState(wrappedValue:initialTab ?? "appearance")
         self.embedded = embedded; panelWidth = width; panelHeight = height
     }
     private var scheme: ColorScheme { state.colorScheme ?? inheritedScheme }
@@ -33,14 +39,14 @@ struct SettingsView: View {
                     }.buttonStyle(.plain).help("收起设置")
                 }
             }.padding(.horizontal,18).padding(.top,17).padding(.bottom,12)
-            JellySegments("设置分类",selection:$tab,options:[("外观","appearance"),("日历","calendar"),("格式","formats"),("通用","general"),("更新","updates")])
+            SettingsNavigation(selection:tabSelection)
                 .padding(.horizontal,16).padding(.bottom,10)
             ScrollView {
                 VStack(alignment:.leading,spacing:12) {
                     switch tab {
                     case "appearance": appearance
                     case "calendar": calendar
-                    case "formats": FormatEditor()
+                    case "formats": timeAndFormats
                     case "updates": updates
                     default: general
                     }
@@ -52,6 +58,7 @@ struct SettingsView: View {
             if !embedded { PanelBackground() }
             palette.backing.opacity(0.94)
         }
+        .fontWeight(state.usesBoldText ? .bold : nil)
         .foregroundStyle(palette.text)
         .environment(\.colorScheme,scheme)
         .toggleStyle(JellyToggleStyle())
@@ -97,6 +104,18 @@ struct SettingsView: View {
             }
             section("背景") {
                 JellySegments("背景材质",selection:$state.preferences.material,options:[("液态玻璃","glass"),("磨砂","frosted"),("纯色","solid")])
+                if state.preferences.material == "glass" {
+                    if #available(macOS 26.0, *) {
+                        labeled("玻璃风格") {
+                            JellySegments("玻璃风格",selection:Binding(get:{state.preferences.glassStyle ?? "clear"},set:{state.preferences.glassStyle = $0}),options:[("清透","clear"),("柔和","regular")])
+                        }
+                        HStack { Text("主题染色"); Spacer(); Text("无色 ← → 淡彩").foregroundStyle(palette.secondary) }.font(.system(size:11))
+                        JellySlider(title:"玻璃主题染色",value:Binding(get:{state.preferences.glassTint ?? 0},set:{state.preferences.glassTint = $0}),range:0...1)
+                    } else {
+                        Text("当前系统使用磨砂背景，原生液态玻璃需要 macOS 26 或更高版本。")
+                            .font(.system(size:10)).foregroundStyle(palette.secondary)
+                    }
+                }
                 if state.preferences.material != "solid" {
                     VStack(spacing:4) {
                         HStack { Text("通透度"); Spacer(); Text("通透 ← → 清晰").foregroundStyle(palette.secondary) }.font(.system(size:11))
@@ -104,7 +123,9 @@ struct SettingsView: View {
                     }.transition(.opacity)
                 }
             }
-            section("布局与动效") {
+            section("文字与布局") {
+                Toggle("加粗字体",isOn:Binding(get:{state.usesBoldText},set:{state.preferences.boldText = $0}))
+                Text("同步调整日历、时钟、设置和菜单栏文字").font(.system(size:10)).foregroundStyle(palette.secondary)
                 labeled("显示密度") { JellySegments("显示密度",selection:$state.preferences.compact,options:[("紧凑",true),("舒适",false)]) }
                 labeled("悬停动效") { JellySegments("悬停动效",selection:$state.preferences.motion,options:[("关闭","off"),("轻柔","soft"),("果冻","jelly")]) }
             }
@@ -112,27 +133,29 @@ struct SettingsView: View {
     }
     private var calendar: some View {
         Group {
-            section("日期图标") {
-                JellySegments("星座显示",selection:$state.preferences.zodiac,options:[("隐藏星座","hidden"),("图标","icon"),("小字","text")])
-                Toggle("显示节气图标",isOn:$state.preferences.termIcons)
-                VStack(spacing:5) {
-                    HStack(spacing:10) {
-                        Text("图标大小").font(.system(size:12))
-                        Spacer()
-                        ZodiacIcon(index:9).frame(width:state.effectiveIconSize,height:state.effectiveIconSize)
-                        Image(systemName:"leaf").font(.system(size:state.effectiveIconSize))
-                        Text(String(format:"%.1f pt",state.effectiveIconSize)).font(.system(size:10,design:.monospaced)).foregroundStyle(palette.secondary).frame(width:46,alignment:.trailing)
-                    }
-                    JellySlider(title:"图标大小",value:Binding(get:{state.effectiveIconSize},set:{state.preferences.iconSize = CalendarMetrics.iconSize($0)}),range:CalendarMetrics.iconSizeRange,step:0.5)
-                    HStack { Text("更小"); Spacer(); Text("最大与日期字号一致") }.font(.system(size:10)).foregroundStyle(palette.secondary)
-                }
-                JellySegments("图标顺序",selection:$state.preferences.zodiacLeft,options:[("星座在左",true),("节气在左",false)])
-            }
             section("月历") {
                 Toggle("农历",isOn:$state.preferences.lunar)
                 Toggle("节日名称",isOn:$state.preferences.festivals)
                 Toggle("放假与补班",isOn:$state.preferences.holidays)
                 labeled("一周开始于") { JellySegments("一周开始于",selection:$state.preferences.mondayFirst,options:[("周一",true),("周日",false)]) }
+            }
+            section("星座与节气图标") {
+                JellySegments("星座显示",selection:$state.preferences.zodiac,options:[("隐藏星座","hidden"),("图标","icon"),("小字","text")])
+                Toggle("显示节气图标",isOn:$state.preferences.termIcons)
+                if state.preferences.zodiac != "hidden" || state.preferences.termIcons {
+                    VStack(spacing:5) {
+                        HStack(spacing:10) {
+                            Text("图标大小").font(.system(size:12))
+                            Spacer()
+                            ZodiacIcon(index:9).frame(width:state.effectiveIconSize,height:state.effectiveIconSize)
+                            Image(systemName:"leaf").font(.system(size:state.effectiveIconSize))
+                            Text(String(format:"%.1f pt",state.effectiveIconSize)).font(.system(size:10,design:.monospaced)).foregroundStyle(palette.secondary).frame(width:46,alignment:.trailing)
+                        }
+                        JellySlider(title:"图标大小",value:Binding(get:{state.effectiveIconSize},set:{state.preferences.iconSize = CalendarMetrics.iconSize($0)}),range:CalendarMetrics.iconSizeRange,step:0.5)
+                        HStack { Text("更小"); Spacer(); Text("最大与日期字号一致") }.font(.system(size:10)).foregroundStyle(palette.secondary)
+                    }
+                    JellySegments("图标顺序",selection:$state.preferences.zodiacLeft,options:[("星座在左",true),("节气在左",false)])
+                }
             }
             section("日期详情") {
                 Toggle("干支年份与生肖",isOn:$state.preferences.showYear)
@@ -148,12 +171,6 @@ struct SettingsView: View {
                     }.padding(.top,10)
                 }.font(.system(size:11)).animation(motion,value:moreDetails)
             }
-            section("底部时钟") {
-                Toggle("显示实时时钟",isOn:$state.preferences.clock)
-                if state.preferences.clock {
-                    JellySegments("传统时间",selection:$state.preferences.traditional,options:[("隐藏时辰","hidden"),("时辰","branch"),("时辰与刻","ke")])
-                }
-            }
             DisclosureGroup("历法与周数规则",isExpanded:$moreRules) {
                 VStack(alignment:.leading,spacing:10) {
                     JellySegments("周数规则",selection:$state.preferences.isoWeek,options:[("ISO 周数",true),("元旦为首周",false)])
@@ -161,6 +178,21 @@ struct SettingsView: View {
                         .font(.system(size:10)).foregroundStyle(palette.secondary)
                 }.padding(.top,10)
             }.font(.system(size:11)).modifier(SettingsCard()).animation(motion,value:moreRules)
+        }
+    }
+    private var timeAndFormats: some View {
+        Group {
+            section("底部时间") {
+                Toggle("显示实时时钟",isOn:$state.preferences.clock)
+                if state.preferences.clock {
+                    Text("默认上行显示时分秒，下行以小字显示时辰与刻。具体组合可在下方调整。")
+                        .font(.system(size:10)).foregroundStyle(palette.secondary)
+                    JellySegments("传统时间",selection:$state.preferences.traditional,options:[("隐藏时辰","hidden"),("时辰","branch"),("时辰与刻","ke")])
+                }
+            }
+            section("显示与复制格式") {
+                FormatEditor()
+            }
         }
     }
     private var general: some View {
@@ -196,6 +228,7 @@ struct SettingsView: View {
                 Text(state.holidayStatus).font(.system(size:11)).foregroundStyle(palette.secondary)
                 Text("每 7 天检查索引，仅下载有变化的年度数据。不会改变软件版本。")
                     .font(.system(size:11)).foregroundStyle(palette.secondary).fixedSize(horizontal:false,vertical:true)
+                if state.holidayUpdating { ProgressView().controlSize(.small) }
                 Button(state.holidayUpdating ? "检查中…" : "更新假期数据") { state.refreshHolidays(force:true) }.disabled(state.holidayUpdating)
             }
         }
@@ -227,11 +260,16 @@ struct FormatEditor: View {
     @Namespace private var presetSelection
     @LocalState<Bool> private var templateExpanded = false
     @LocalState<Bool> private var favoritesExpanded = false
+    @LocalState<Bool> private var allPresets = false
+    private var recommendedPresets: [(String,String)] {
+        let indices = target == "clock" ? [9,10,8,1] : target == "copy" ? [1,2,3,11] : [0,1,7,12]
+        return indices.map { DateFormats.presets[$0] }
+    }
     private var motion: Animation? { reduced ? nil : .spring(response:0.28,dampingFraction:0.82) }
     var body: some View {
         VStack(alignment:.leading,spacing:12) {
             JellySegments("编辑位置",selection:$target,options:[("菜单栏","menu"),("底部时钟","clock"),("复制格式","copy")])
-                .onChange(of:target) { _ in reload() }
+                .onChange(of:target) { value in state.formatTarget = value; reload() }
             livePreview
             presetGrid
             DisclosureGroup("自定义组合",isExpanded:$customExpanded) {
@@ -243,7 +281,7 @@ struct FormatEditor: View {
             }.font(.system(size:12)).animation(motion,value:customExpanded).animation(motion,value:templateExpanded)
             DisclosureGroup("个人预设与复制收藏",isExpanded:$favoritesExpanded) { favoritesEditor.padding(.top,10) }
                 .font(.system(size:12)).animation(motion,value:favoritesExpanded)
-        }.onAppear { reload() }
+        }.onAppear { target = state.formatTarget; reload() }
     }
     private var livePreview: some View {
             TimelineView(.periodic(from:.now,by:1)) { context in
@@ -294,8 +332,10 @@ struct FormatEditor: View {
             VStack(alignment:.leading,spacing:10) {
                 Text("常用样式").font(.system(size:11,weight:.medium)).foregroundStyle(.secondary)
                 LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],alignment:.leading,spacing:8) {
-                    ForEach(DateFormats.presets,id:\.0) { name, value in Button { template.wrappedValue = value; reload() } label: { VStack(alignment:.leading,spacing:3) { Text(name).font(.caption); Text(state.render(value,at:Date())).font(.system(size:10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7) }.frame(maxWidth:.infinity,alignment:.leading).padding(7).background { if template.wrappedValue == value { RoundedRectangle(cornerRadius:6).fill(state.accent.opacity(0.14)).matchedGeometryEffect(id:"preset",in:presetSelection) } else { RoundedRectangle(cornerRadius:6).fill(.primary.opacity(0.035)) } } }.buttonStyle(.plain) }
+                    ForEach(allPresets ? DateFormats.presets : recommendedPresets,id:\.0) { name, value in Button { template.wrappedValue = value; reload() } label: { VStack(alignment:.leading,spacing:3) { Text(name).font(.caption); Text(state.render(value,at:Date())).font(.system(size:10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7) }.frame(maxWidth:.infinity,alignment:.leading).padding(7).background { if template.wrappedValue == value { RoundedRectangle(cornerRadius:6).fill(state.accent.opacity(0.14)).matchedGeometryEffect(id:"preset",in:presetSelection) } else { RoundedRectangle(cornerRadius:6).fill(.primary.opacity(0.035)) } } }.buttonStyle(.plain) }
                 }
+                Button(allPresets ? "收起更多样式" : "更多样式…") { withAnimation(motion) { allPresets.toggle() } }
+                    .font(.system(size:11)).buttonStyle(.plain).foregroundStyle(state.accent)
             }.modifier(SettingsCard()).animation(motion,value:template.wrappedValue)
     }
     private var favoritesEditor: some View {

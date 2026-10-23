@@ -23,6 +23,7 @@ struct WorkspaceView: View {
         .background(PanelBackground())
         .clipShape(RoundedRectangle(cornerRadius:22,style:.continuous))
         .environment(\.colorScheme,state.colorScheme ?? inheritedScheme)
+        .fontWeight(state.usesBoldText ? .bold : nil)
         .tint(state.accent)
         .preferredColorScheme(state.colorScheme)
     }

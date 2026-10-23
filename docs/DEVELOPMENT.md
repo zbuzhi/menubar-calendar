@@ -174,3 +174,14 @@ python3 scripts/render-readme-media.py
 ```
 
 输出为 `docs/assets/hero.png` 与 `docs/assets/demo.gif`，中间帧存放于 `.build/readme-frames/`。脚本会编译独立的演示程序，展示日期悬停、主题色、深浅主题与显示开关。若只重新压缩现有帧，可添加 `--skip-render`。
+
+## 界面与更新检查
+
+```sh
+python3 Tests/check-interface.py
+python3 Tests/check-software-updates.py <包含已签名 appcast.xml 的发布目录>
+```
+
+界面检查使用独立应用偏好域，覆盖菜单栏开关、设置入口与旧设置兼容；更新检查覆盖页内加载、结果与签名错误，不安装更新。
+
+设置按外观、日历、时间、通用、更新分类。外观支持字体加粗；macOS 26 起可切换原生玻璃风格并调节主题染色。底部时钟默认显示时分秒和小字时辰，秒数使用平滑滚动过渡，并遵循系统减少动态效果设置。

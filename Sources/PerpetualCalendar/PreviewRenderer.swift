@@ -14,6 +14,7 @@ import SwiftUI
         var below = false
         var note = false
         var accent = "blue"
+        var bold = false
     }
     static func render(to directory: URL, completion: @escaping () -> Void) {
         do { try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true) }
@@ -35,6 +36,7 @@ import SwiftUI
             Job(name:"settings-colors-narrow",theme:"dark",material:"solid",tab:"appearance",accent:"rose"),
             Job(name:"workspace-below",theme:"light",material:"solid",tab:"",workspace:true,below:true),
             Job(name:"calendar-light",theme:"light",material:"solid",tab:"",calendar:true),
+            Job(name:"calendar-bold",theme:"light",material:"solid",tab:"",calendar:true,bold:true),
             Job(name:"calendar-dark",theme:"dark",material:"solid",tab:"",calendar:true),
             Job(name:"settings",theme:"light",material:"solid",tab:"appearance"),
             Job(name:"formats",theme:"light",material:"solid",tab:"formats"),
@@ -58,6 +60,7 @@ import SwiftUI
             }
             let job = jobs[index]
             state.preferences.theme = job.theme; state.preferences.material = job.material
+            state.preferences.boldText = job.bold
             state.preferences.accent = job.accent
             state.preferences.iconSize = job.maximumIcons ? 16 : 6
             state.settingsPresented = job.workspace; state.settingsOnLeft = false; state.settingsWidth = 620

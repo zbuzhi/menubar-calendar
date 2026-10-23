@@ -4,6 +4,7 @@ import argparse
 import http.server
 import os
 import pathlib
+import platform
 import plistlib
 import shutil
 import subprocess
@@ -24,7 +25,7 @@ def main(release, remote_expect):
         frameworks.mkdir()
         subprocess.run(['ditto', str(app/'Contents/Frameworks/Sparkle.framework'), str(frameworks/'Sparkle.framework')], check=True)
         binary = tmp/'probe'
-        subprocess.run(['swiftc', '-parse-as-library', '-swift-version', '5', '-target', 'arm64-apple-macosx13.0',
+        subprocess.run(['swiftc', '-parse-as-library', '-swift-version', '5', '-target', platform.machine() + '-apple-macosx13.0',
                         '-F', str(frameworks), '-framework', 'Sparkle', '-Xlinker', '-rpath',
                         '-Xlinker', '@executable_path/../Frameworks', str(ROOT/'Tests/UpdaterChecks.swift'),
                         str(ROOT/'Sources/PerpetualCalendar/SoftwareUpdater.swift'),
@@ -51,7 +52,7 @@ def main(release, remote_expect):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            for case, body in [('available', feed_body), ('current', empty_body), ('tampered', corrupt_body), ('remote', empty_body), ('model', empty_body)]:
+            for case, body in [('available', feed_body), ('current', empty_body), ('tampered', corrupt_body), ('remote', empty_body), ('model', empty_body), ('inline-available', feed_body), ('inline-current', empty_body), ('inline-tampered', corrupt_body)]:
                 Handler.body = body
                 test_app = tmp/f'{case}.app'
                 macos = test_app/'Contents/MacOS'

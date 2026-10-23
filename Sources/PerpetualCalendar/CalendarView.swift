@@ -29,6 +29,7 @@ struct CalendarView: View {
                     .background(.regularMaterial,in:Capsule()).padding(.bottom,55).transition(.opacity)
             }
         }
+        .fontWeight(state.usesBoldText ? .bold : nil)
         .tint(state.accent).preferredColorScheme(state.colorScheme)
         .animation(.easeInOut(duration:0.15),value:state.toast)
         .popover(isPresented:Binding(get:{state.noteEditorDate != nil},set:{if !$0 { state.noteEditorDate = nil }})) {
@@ -85,7 +86,7 @@ struct CalendarView: View {
         return Button { state.select(date) } label: {
             VStack(spacing:3) {
                 Text(String(e.calendar.component(.day,from:date)))
-                    .font(.system(size:CalendarMetrics.dateFontSize,weight:selected || today ? .semibold : .medium))
+                    .font(.system(size:CalendarMetrics.dateFontSize,weight:state.textWeight(selected || today ? .semibold : .medium)))
                     .foregroundStyle(selected ? .white : e.calendar.isDateInWeekend(date) ? Color.red.opacity(0.85) : .primary)
                 if p.lunar || festival != nil || term != nil {
                     Text(festival ?? term?.name ?? (p.lunar ? lunar.short : ""))
@@ -273,15 +274,16 @@ struct CalendarView: View {
 
 struct ClockView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduced
     @LocalState<Bool> private var showCopy = false
     @LocalState<Date> private var openedAt = Date()
     var body: some View {
-        TimelineView(.periodic(from:.now,by:1)) { context in
+        TimelineView(.periodic(from:Date(timeIntervalSince1970:floor(Date().timeIntervalSince1970)),by:1)) { context in
             Button { openedAt = Date(); showCopy.toggle() } label: {
                 VStack(spacing:2) {
-                    Text(state.render(state.preferences.clockTemplate,at:context.date)).font(.system(size:14,weight:.medium,design:.monospaced)).lineLimit(1).minimumScaleFactor(0.65)
+                    RollingClockText(text:state.render(state.preferences.clockTemplate,at:context.date),bold:state.usesBoldText,reduced:reduced).lineLimit(1).minimumScaleFactor(0.65)
                     if state.preferences.traditional != "hidden" {
-                        Text(state.engine.traditionalTime(context.date,detailed:state.preferences.traditional == "ke")).font(.system(size:8)).foregroundStyle(.secondary)
+                        Text(state.engine.traditionalTime(context.date,detailed:state.preferences.traditional == "ke")).font(.system(size:9,weight:state.textWeight())).foregroundStyle(.secondary)
                     }
                 }.frame(minWidth:100)
             }.buttonStyle(.plain).help("点击复制当前时间")
@@ -298,7 +300,7 @@ struct ClockView: View {
                         ForEach(state.preferences.favorites) { f in copyRow(f.name+" · "+state.render(f.template,at:openedAt),f.template) }
                     }
                     Divider()
-                    Button("管理复制格式…") { showCopy = false; state.onSettings?() }.buttonStyle(.plain).foregroundStyle(state.accent).padding(.vertical,7)
+                    Button("管理复制格式…") { showCopy = false; state.openSettings(tab:"formats",target:"copy") }.buttonStyle(.plain).foregroundStyle(state.accent).padding(.vertical,7)
                 }.padding(16).frame(width:310).tint(state.accent).preferredColorScheme(state.colorScheme)
             }
         }
@@ -310,6 +312,28 @@ struct ClockView: View {
         }.buttonStyle(.plain).background(.primary.opacity(0.035),in:RoundedRectangle(cornerRadius:6))
     }
 }
+/// Animate only changed glyphs; unchanged hours and separators stay still.
+struct RollingClockText: View {
+    let text: String
+    let bold: Bool
+    let reduced: Bool
+    var body: some View {
+        HStack(spacing:0) {
+            ForEach(Array(text.enumerated()),id:\.offset) { _, character in
+                Text(String(character))
+                    .id(character)
+                    .transition(reduced ? .identity : .asymmetric(
+                        insertion:.offset(y:-8).combined(with:.opacity),
+                        removal:.offset(y:8).combined(with:.opacity)))
+            }
+        }
+        .font(.system(size:14,weight:bold ? .bold : .medium,design:.monospaced))
+        .frame(height:20).clipped()
+        .animation(reduced ? nil : .easeInOut(duration:0.35),value:text)
+        .accessibilityElement(children:.ignore).accessibilityLabel(text)
+    }
+}
+
 struct CopyActions: View {
     @EnvironmentObject var state: AppState
     let date: Date

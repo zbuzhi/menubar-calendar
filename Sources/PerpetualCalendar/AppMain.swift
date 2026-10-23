@@ -33,7 +33,6 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
             return
         }
         NSApp.setActivationPolicy(.accessory)
-        state.softwareUpdater.beforeManualCheck = { [weak self] in self?.hidePanel() }
         state.softwareUpdater.start()
         statusItem = NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
         statusItem.button?.target = self
@@ -51,12 +50,12 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         panel.collectionBehavior = [.moveToActiveSpace,.fullScreenAuxiliary]
         panel.contentView = TransparentHostingView(rootView:WorkspaceView().environmentObject(state))
         state.onSettings = { [weak self] in self?.toggleSettings() }
+        state.onShowSettings = { [weak self] in self?.showSettings() }
         state.onPreferencesChange = { [weak self] in self?.updateStatus() }
         stateSubscription = state.objectWillChange.sink { [weak self] _ in self?.scheduleLayout() }
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, !self.state.pinned else { return }
-                self.hidePanel()
+                self?.handleOutsideClick(at:NSEvent.mouseLocation)
             }
         }
         updateStatus()
@@ -73,11 +72,22 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         let now = Date()
         let value = state.render(state.preferences.menuTemplate,at:now)
         statusItem.button?.title = value.isEmpty ? "日历" : value
-        statusItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize:12,weight:.regular)
+        statusItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize:12,weight:state.usesBoldText ? .semibold : .regular)
         statusItem.button?.setAccessibilityLabel("日历，"+value)
         let today = state.engine.key(now)
         if let lastSelectionDay, lastSelectionDay != today, state.engine.key(state.selected) == lastSelectionDay { state.today() }
         lastSelectionDay = today
+    }
+    var statusItemFrame: NSRect? {
+        guard let button = statusItem.button, let window = button.window else { return nil }
+        return window.convertToScreen(button.convert(button.bounds,to:nil))
+    }
+    func handleOutsideClick(at point: NSPoint) {
+        guard !state.pinned else { return }
+        // The status-item action handles this click on mouse-up. Closing here
+        // on mouse-down would make that action reopen the panel.
+        guard statusItemFrame?.contains(point) != true else { return }
+        hidePanel()
     }
     @objc func statusClicked() {
         if NSApp.currentEvent?.type == .rightMouseUp { showContextMenu(); return }
@@ -145,7 +155,7 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
     func add(_ menu:NSMenu,_ title:String,_ selector:Selector) { let item = NSMenuItem(title:title,action:selector,keyEquivalent:""); item.target = self; menu.addItem(item) }
     @objc func openCalendar() { showPopover() }
     @objc func openSettings() { showSettings() }
-    @objc func checkSoftwareUpdates() { state.softwareUpdater.check() }
+    @objc func checkSoftwareUpdates() { state.openSettings(tab:"updates"); state.softwareUpdater.check() }
     @objc func copyCurrent() { state.copy(state.preferences.menuTemplate) }
     @objc func copyStandard() { state.copy(state.preferences.copyTemplate) }
     @objc func quit() { NSApp.terminate(nil) }
@@ -190,6 +200,7 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
+#if !CALENDAR_CHECKS
 @main struct PerpetualCalendarApp {
     @MainActor static func main() {
         let application = NSApplication.shared
@@ -198,3 +209,5 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         withExtendedLifetime(delegate) { application.run() }
     }
 }
+
+#endif

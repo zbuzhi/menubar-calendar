@@ -9,6 +9,33 @@ import Sparkle
     var model: SoftwareUpdater?
     let expected = ProcessInfo.processInfo.arguments.last!
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if expected.hasPrefix("inline-") {
+            let model = SoftwareUpdater()
+            self.model = model
+            model.start()
+            DispatchQueue.main.asyncAfter(deadline:.now()+0.2) {
+                let visibleWindows = NSApp.windows.filter(\.isVisible).count
+                model.check()
+                guard model.checking else { self.finish(false,"inline check did not begin"); return }
+                model.check() // A second click must not start another cycle.
+                @MainActor func awaitResult(_ attempts: Int) {
+                    if !model.checking {
+                        let noWindows = NSApp.windows.filter(\.isVisible).count == visibleWindows
+                        let correct: Bool
+                        switch self.expected {
+                        case "inline-available": correct = model.availableVersion != nil && model.status.hasPrefix("发现新版本")
+                        case "inline-current": correct = model.availableVersion == nil && model.status == "当前已是最新版本"
+                        default: correct = model.availableVersion == nil && model.status == "暂时无法完成更新，可稍后重试"
+                        }
+                        self.finish(noWindows && correct,"inline result without an update window: " + model.status)
+                    } else if attempts > 0 {
+                        DispatchQueue.main.asyncAfter(deadline:.now()+0.1) { awaitResult(attempts - 1) }
+                    } else { self.finish(false,"inline check timed out") }
+                }
+                awaitResult(250)
+            }
+            return
+        }
         if expected == "model" {
             let model = SoftwareUpdater()
             self.model = model
