@@ -34,9 +34,9 @@ def render():
         subprocess.run([str(ROOT / 'scripts/build-app.sh')], cwd=ROOT, check=True)
     subprocess.run(['ditto', str(vendor), str(frameworks / 'Sparkle.framework')], check=True)
     files = [str(p) for p in (ROOT / 'Sources/PerpetualCalendar').glob('*.swift')
-             if p.name not in ('AppMain.swift', 'PreviewRenderer.swift')]
+             if p.is_file()]
     command = ['swiftc', '-parse-as-library', '-swift-version', '5', '-target', target, '-I', str(product),
-               '-F', str(frameworks), '-framework', 'Sparkle', '-Xlinker', '-rpath',
+               '-D', 'CALENDAR_CHECKS', '-F', str(frameworks), '-framework', 'Sparkle', '-Xlinker', '-rpath',
                '-Xlinker', '@executable_path/../Frameworks', str(product / 'CalendarCore.o')]
     command += files + [str(ROOT / 'scripts/ReadmeDemo.swift'), '-o', str(macos / 'ReadmeDemo')]
     subprocess.run(command, cwd=ROOT, check=True,
@@ -67,7 +67,7 @@ def cover():
     canvas = canvas.convert('RGBA')
     draw = ImageDraw.Draw(canvas)
     draw.text((70, 124), 'macOS 菜单栏万年历', font=font(19), fill='#92A9C1')
-    draw.text((62, 182), '日历', font=font(100, True), fill='#F4F8FF')
+    draw.text((62, 182), '不知时日历', font=font(62, True), fill='#F4F8FF')
     draw.text((70, 340), '时间，抬眼就见。', font=font(31, True), fill='#E5EFFA')
     draw.text((70, 408), '农历 · 节气 · 节假日', font=font(23), fill='#8AD9E0')
     draw.multiline_text((70, 485), '从日常日期到传统时辰，\n把需要的信息放在菜单栏。',

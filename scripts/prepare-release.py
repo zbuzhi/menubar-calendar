@@ -58,7 +58,7 @@ def prepare(app, notes):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--app', type=pathlib.Path, default=ROOT/'dist/日历.app')
+    parser.add_argument('--app', type=pathlib.Path, default=ROOT/'dist/不知时日历.app')
     parser.add_argument('--notes', type=pathlib.Path, required=True)
     args = parser.parse_args()
     prepare(args.app.resolve(), args.notes.read_text(encoding='utf-8'))

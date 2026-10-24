@@ -14,13 +14,20 @@ import ServiceManagement
     @Published var settingsDock: SettingsDock = .left
     @Published var calendarViewportHeight: CGFloat?
     @Published var settingsViewportHeight: CGFloat?
-    @Published var noteEditorDate: Date?
+    @Published var noteEditorDate: Date? { didSet { onNotePresentationChange?() } }
+    static let defaultNoteEditorSize = NSSize(width:470,height:570)
+    @Published private(set) var noteEditorSize = AppState.defaultNoteEditorSize
+    @Published var noteSimpleDisplay = false { didSet { defaults.set(noteSimpleDisplay,forKey:"notes.simpleDisplay") } }
+    @Published var notePinned = false { didSet { defaults.set(notePinned,forKey:"notes.pinned"); onNotePinChange?() } }
+    private(set) var noteWindowOrigin: NSPoint?
     @Published var settingsWidth: CGFloat = 620
     @Published var availableHeight: CGFloat = 900
     @Published var pinned = false
     @Published var comparison = false
     @Published var comparisonDate = Date()
-    @Published var notes: [String:String] { didSet { persistNotes() } }
+    @Published private(set) var noteDocument: NoteDocument
+    private(set) var notesReadOnly = false
+    private var notesSourceKey = "notes.v3"
     @Published var toast: String?
     @Published var loginError: String?
     let engine = CalendarEngine()
@@ -30,6 +37,13 @@ import ServiceManagement
     private var holidayUpdatesEnabled = false
     private let holidayRepository = HolidayRepository()
     let softwareUpdater = SoftwareUpdater()
+    var onNotePinChange: (() -> Void)?
+    var onNotePresentationChange: (() -> Void)?
+    var onNoteResetSize: (() -> Void)?
+    var onNoteClose: (() -> Void)?
+    var onNoteAdd: (() -> Void)?
+    var onNoteSave: (() -> Void)?
+    weak var noteUndoManager: UndoManager?
     var onSettings: (() -> Void)?
     var onShowSettings: (() -> Void)?
     var onPreferencesChange: (() -> Void)?
@@ -41,7 +55,38 @@ import ServiceManagement
         var loaded = defaults.data(forKey:"preferences.v1").flatMap { try? JSONDecoder().decode(Preferences.self,from:$0) } ?? Preferences()
         loaded.iconSize = CalendarMetrics.iconSize(loaded.iconSize)
         preferences = loaded
-        notes = defaults.dictionary(forKey:"notes.v1") as? [String:String] ?? [:]
+        notePinned = defaults.bool(forKey:"notes.pinned")
+        noteSimpleDisplay = defaults.bool(forKey:"notes.simpleDisplay")
+        if let origin = defaults.array(forKey:"notes.windowOrigin") as? [Double], origin.count == 2, origin.allSatisfy({ $0.isFinite }) {
+            noteWindowOrigin = NSPoint(x:origin[0],y:origin[1])
+        }
+        if let size = defaults.array(forKey:"notes.editorSize") as? [Double], size.count == 2,
+           size.allSatisfy({ $0.isFinite }) {
+            noteEditorSize = NSSize(width:min(1600,max(380,size[0])),height:min(1600,max(300,size[1])))
+        }
+        notesSourceKey = defaults.data(forKey:"notes.v3") != nil ? "notes.v3" : "notes.v2"
+        if let data = defaults.data(forKey:notesSourceKey) {
+            do {
+                noteDocument = try NoteDocument.decode(data)
+                if notesSourceKey != "notes.v3", let migrated = try? noteDocument.encoded() { defaults.set(migrated,forKey:"notes.v3") }
+            }
+            catch { noteDocument = NoteDocument(); notesReadOnly = true }
+        } else {
+            noteDocument = NoteDocument.migrate(defaults.dictionary(forKey:"notes.v1") as? [String:String] ?? [:])
+            if let data = try? noteDocument.encoded() { defaults.set(data,forKey:"notes.v3") }
+        }
+    }
+    func setNoteWindowOrigin(_ origin: NSPoint) {
+        noteWindowOrigin = origin; defaults.set([origin.x,origin.y],forKey:"notes.windowOrigin")
+    }
+    func toggleNoteEditor(_ date: Date) {
+        noteEditorDate = noteEditorDate.map { engine.key($0) == engine.key(date) } == true ? nil : date
+    }
+    func setNoteEditorSize(_ size: NSSize) {
+        let clamped = NSSize(width:min(1600,max(380,size.width)),height:min(1600,max(300,size.height)))
+        guard noteEditorSize != clamped else { return }
+        noteEditorSize = clamped
+        defaults.set([clamped.width,clamped.height],forKey:"notes.editorSize")
     }
     var usesBoldText: Bool { preferences.boldText ?? false }
     func textWeight(_ normal: Font.Weight = .regular) -> Font.Weight { usesBoldText ? .bold : normal }
@@ -84,9 +129,25 @@ import ServiceManagement
     var selectionColor: Color { color(ThemeColors.selection(accentName)) }
     private func color(_ rgb: CalendarCore.RGBColor) -> Color { Color(.sRGB,red:rgb.red,green:rgb.green,blue:rgb.blue,opacity:1) }
     var colorScheme: ColorScheme? { preferences.theme == "system" ? nil : preferences.theme == "dark" ? .dark : .light }
+    func hasNotes(on date: String) -> Bool { noteDocument.entries.contains { $0.date == date && !$0.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty } }
     var note: String {
-        get { notes[engine.key(selected)] ?? "" }
-        set { let key = engine.key(selected); if newValue.isEmpty { notes.removeValue(forKey:key) } else { notes[key] = newValue } }
+        let entries = noteDocument.entries(date:engine.key(selected)).filter { !$0.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty }
+        guard !entries.isEmpty else { return "" }
+        return "\(entries.filter(\.isCompleted).count)/\(entries.count) 已完成 · " + entries.map(\.text).joined(separator:" · ")
+    }
+    @discardableResult func saveNotes(_ document: NoteDocument) -> Bool {
+        guard !notesReadOnly else { message("小记数据版本较新或已损坏，已保留原始数据，请先导出备份"); return false }
+        do {
+            try document.validate()
+            let data = try document.encoded(pretty:false)
+            defaults.set(data,forKey:"notes.v3")
+            noteDocument = document
+            return true
+        } catch { message("保存失败：\(error.localizedDescription)"); return false }
+    }
+    var noteStorageDescription: String {
+        let bytes = defaults.data(forKey:notesReadOnly ? notesSourceKey : "notes.v3")?.count ?? 0
+        return "全部 \(noteDocument.entries.count) 条 · " + ByteCountFormatter.string(fromByteCount:Int64(bytes),countStyle:.file)
     }
     var selectedYear: Int { engine.calendar.component(.year,from:month) }
     func openSettings(tab: String, target: String? = nil) {
@@ -98,7 +159,6 @@ import ServiceManagement
         if let data = try? JSONEncoder().encode(preferences) { defaults.set(data,forKey:"preferences.v1") }
         onPreferencesChange?()
     }
-    func persistNotes() { defaults.set(notes,forKey:"notes.v1") }
     func select(_ date: Date) { guard (1901...2100).contains(engine.calendar.component(.year,from:date)) else { message("支持查询 1901—2100 年"); return }; selected = date; if !engine.calendar.isDate(date,equalTo:month,toGranularity:.month) { month = date } }
     func today() { let now = Date(); selected = now; month = now; annual = false }
     func shift(_ amount: Int) {
@@ -150,9 +210,16 @@ import ServiceManagement
         if calendar.entries != holidays.entries || calendar.coveredYears != holidays.coveredYears { holidays = calendar }
     }
     func exportNotes() {
-        let panel = NSSavePanel(); panel.nameFieldStringValue = "日历小记.json"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do { let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted,.sortedKeys]; try e.encode(notes).write(to:url,options:.atomic); message("小记已导出") }
+        let panel = NSSavePanel(); panel.nameFieldStringValue = AppBrand.noteExportName + ".json"
+        guard NoteSaveDialog.run(panel) == .OK, let url = panel.url else { return }
+        do {
+            let data: Data
+            if notesReadOnly {
+                guard let original = defaults.data(forKey:notesSourceKey) else { throw CocoaError(.fileReadNoSuchFile) }
+                data = original
+            } else { data = try noteDocument.encoded() }
+            try data.write(to:url,options:.atomic); message("小记已导出")
+        }
         catch { message("导出失败：\(error.localizedDescription)") }
     }
 }

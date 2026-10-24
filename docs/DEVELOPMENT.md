@@ -1,6 +1,6 @@
 # 开发说明与历法口径
 
-开源 macOS 菜单栏万年历，应用显示名称为「日历」，对外项目名与 GitHub 仓库名为 `menubar-calendar`。
+开源 macOS 菜单栏万年历，应用显示名称为「不知时日历」，GitHub 仓库名保留为 `menubar-calendar`。
 
 [下载最新版](https://github.com/zbuzhi/menubar-calendar/releases/latest) · [源码仓库](https://github.com/zbuzhi/menubar-calendar) · [MIT 许可证](../LICENSE)
 
@@ -12,7 +12,7 @@ SwiftUI + AppKit 原生实现。支持 macOS 13 及以上；macOS 26 及以上�
 
 ```sh
 ./scripts/build-app.sh
-open dist/日历.app
+open dist/不知时日历.app
 ```
 
 第一次运行后，在顶部菜单栏点击日期。也可按 **Control + Option + Space** 展开或收起。应用不出现在 Dock 中，右键菜单栏入口可以复制时间、打开设置或退出。
@@ -25,6 +25,20 @@ swift run --skip-build PerpetualCalendar --show
 ```
 
 登录自启动使用 `SMAppService.mainApp`，需把 `.app` 保留在固定位置再开启。发行时建议签名、公证并安装到 Applications；本地构建仅做 ad-hoc 签名，不是经过公证的安装包。
+
+## 项目名称与应用图标
+
+项目对外名称为「不知时日历」，应用、菜单、导出文件与构建产物使用此名称。仓库路径、内部可执行文件 `PerpetualCalendar`、bundle ID `com.perpetualcalendar.mac` 及更新签名账户独立于展示名称，已有设置和小记继续沿用原数据域。
+
+图标源文件为 `Resources/AppIcon.icon`，包含可编辑的 SVG 字标与图层设置；名称以上方小字「不知时」、下方大字「历」的中文排版表现，顶部短线与横向分隔线保留日历感，采用扁平实色设计。`scripts/build-icon.py` 使用 Xcode 26+ 的资源编译器生成系统图标资源及静态兼容图标，支持系统的浅色、深色与染色外观。关闭字标图层的玻璃特效，避免浮雕描边与强透明造成难辨认。没有引入第三方图形库。
+
+无兼容资源编译器时，使用已导出的 `Resources/Branding/AppIcon.png` 生成 16—1024 像素的静态图标。可单独验证该路径：
+
+```sh
+python3 scripts/build-icon.py .build/static-brand.app --static-only
+```
+
+设计源变更后，应重新导出静态兼容 PNG 和 `docs/assets/logo.png`。资源编译按源文件与工具版本缓存，常规构建不重复渲染。原生图标格式见 [Apple Icon Composer](https://developer.apple.com/icon-composer/) 与 [创建应用图标](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer)。
 
 ## 0.1.8 更新
 
@@ -95,7 +109,7 @@ swift run --skip-build PerpetualCalendar --show
 - 鼠标悬停滑块：关闭/轻柔/果冻，点击日期更新详情，尊重系统减少动态效果。
 - 日期详情：节气和星座第几天、下一节气倒计时、周数与公历年内天数。
 - 农历/公历年度进度切换，正确计算闰年、闰月年的长度。
-- 月相示意与详情、按日期保存的小记、JSON 导出备份。
+- 月相示意与详情、支持彩色标签的小记、简单 Markdown 展示、自动保存，以及 PDF／Markdown／JSON 导出。
 - 日期对比：天数、周数、已收录年份的工作日数，区间不含起始日。
 - 底部实时时钟、传统时辰/刻数、点击复制日期时间、个人格式收藏。
 - 菜单栏/底部时钟/默认复制格式独立配置：字段拖动排序、编辑/删除、自定义连接符、预设与实时预览。
@@ -130,7 +144,7 @@ swift run --skip-build PerpetualCalendar --show
 
 ## 数据与隐私
 
-无账户、无遥测，农历与时钟离线计算。节假日更新仅访问 `raw.githubusercontent.com/zbuzhi/calendar-holidays/main/` 下的索引和年度 JSON，不需要 GitHub Token，不上传小记和偏好。软件更新另外读取同仓库 `updates/appcast.xml` 和`zbuzhi/menubar-calendar` 的 GitHub Releases 安装包，默认每天检查；可在设置中关闭自动检查。不启用 Sparkle 系统信息采集。年度缓存保存在 `~/Library/Application Support/com.perpetualcalendar.mac/holidays/`；离线时继续使用内置或已缓存的数据。设置和小记保存在应用的 UserDefaults（bundle ID：`com.perpetualcalendar.mac`），导出小记可用于备份。清除偏好会影响已保存内容。
+无账户、无遥测，农历与时钟离线计算。节假日更新仅访问 `raw.githubusercontent.com/zbuzhi/calendar-holidays/main/` 下的索引和年度 JSON，不需要 GitHub Token，不上传小记和偏好。软件更新另外读取同仓库 `updates/appcast.xml` 和`zbuzhi/menubar-calendar` 的 GitHub Releases 安装包，默认每天检查；可在设置中关闭自动检查。不启用 Sparkle 系统信息采集。年度缓存保存在 `~/Library/Application Support/com.perpetualcalendar.mac/holidays/`；离线时继续使用内置或已缓存的数据。设置和小记保存在应用的 UserDefaults（bundle ID：`com.perpetualcalendar.mac`），小记以带版本号的 JSON 保存，支持标签、多条记录与完成状态，自动迁移并保留旧版数据。导出小记可用于备份，结构及升级约定见 [小记数据协议](NOTES.md)。清除偏好会影响已保存内容。
 
 ## 校验
 
@@ -156,7 +170,7 @@ swift run --disable-sandbox CalendarCoreChecks
 ```sh
 ./scripts/check.sh
 # 由应用渲染自己的界面（不是桌面截图），输出浅色/深色月历、设置、格式编辑器与并排设置：
-dist/日历.app/Contents/MacOS/PerpetualCalendar --render-preview "$PWD/output/previews"
+dist/不知时日历.app/Contents/MacOS/PerpetualCalendar --render-preview "$PWD/output/previews"
 # 重新生成代码绘制的图标：
 swift scripts/make-icon.swift .build/AppIcon.iconset Resources/AppIcon.icns
 ```

@@ -32,9 +32,7 @@ struct CalendarView: View {
         .fontWeight(state.usesBoldText ? .bold : nil)
         .tint(state.accent).preferredColorScheme(state.colorScheme)
         .animation(.easeInOut(duration:0.15),value:state.toast)
-        .popover(isPresented:Binding(get:{state.noteEditorDate != nil},set:{if !$0 { state.noteEditorDate = nil }})) {
-            if let date = state.noteEditorDate { NoteEditor(date:date).environmentObject(state) }
-        }
+
     }
     private var header: some View {
         HStack(spacing:8) {
@@ -110,7 +108,7 @@ struct CalendarView: View {
                 }
             }
             .overlay(alignment:.bottomTrailing) {
-                if state.notes[key] != nil { Circle().fill(selected ? .white : state.accent).frame(width:3,height:3).padding(4) }
+                if state.hasNotes(on:key) { Circle().fill(selected ? .white : state.accent).frame(width:3,height:3).padding(4) }
             }
             .opacity(currentMonth ? 1 : 0.35)
             .contentShape(RoundedRectangle(cornerRadius:10))
@@ -174,16 +172,17 @@ struct CalendarView: View {
             if p.showCapsule { capsule(date) }
             if p.showHolidayCountdown { holidayCountdown(date) }
             if p.showNotes {
-                Button { state.noteEditorDate = date } label: {
+                Button { state.toggleNoteEditor(date) } label: {
                     HStack(spacing:8) {
                         Image(systemName:"square.and.pencil").foregroundStyle(state.accent)
-                        Text(state.note.isEmpty ? "添加当天小记" : state.note.replacingOccurrences(of:"\n",with:" "))
+                        Text("小记").fontWeight(.medium)
+                        Text(state.note.isEmpty ? "添加当天记录" : state.note.replacingOccurrences(of:"\n",with:" "))
                             .lineLimit(1).foregroundStyle(state.note.isEmpty ? .secondary : .primary)
                         Spacer(minLength:0)
                         Image(systemName:"chevron.right").font(.system(size:9)).foregroundStyle(.secondary)
                     }.font(.system(size:12)).padding(10)
                         .background(.primary.opacity(0.045),in:RoundedRectangle(cornerRadius:9))
-                }.buttonStyle(.plain).help("一天一条 · 点击编辑 · 仅保存在本机")
+                }.buttonStyle(.plain).help("小记 · 点击打开或关闭 · 仅保存在本机")
             }
         }
     }
@@ -264,7 +263,7 @@ struct CalendarView: View {
                         Text(same ? String(state.engine.calendar.component(.day,from:day)) : " ")
                             .font(.system(size:7)).foregroundStyle(state.engine.calendar.isDateInToday(day) ? state.accent : state.engine.calendar.isDateInWeekend(day) ? .red.opacity(0.8) : .primary)
                             .frame(maxWidth:.infinity)
-                            .overlay(alignment:.bottom) { if same && state.notes[state.engine.key(day)] != nil { Circle().fill(state.accent).frame(width:2,height:2).offset(y:3) } }
+                            .overlay(alignment:.bottom) { if same && state.hasNotes(on:state.engine.key(day)) { Circle().fill(state.accent).frame(width:2,height:2).offset(y:3) } }
                     }
                 }.frame(height:80,alignment:.top)
             }.padding(8).background(.primary.opacity(0.035),in:RoundedRectangle(cornerRadius:9))
@@ -350,46 +349,5 @@ struct CopyActions: View {
         }
         Divider()
         Button("管理复制格式…") { state.onSettings?() }
-    }
-}
-
-/// Capture the date at opening, so navigation never writes a note into another day.
-struct NoteEditor: View {
-    let date: Date
-    @EnvironmentObject var state: AppState
-    @Environment(\.colorScheme) private var inheritedScheme
-    @Environment(\.dismiss) private var dismiss
-    @LocalState<String> private var draft = ""
-    @FocusState private var focused: Bool
-    private var scheme: ColorScheme { state.colorScheme ?? inheritedScheme }
-    private var palette: SettingsPalette { SettingsPalette(scheme) }
-    private var key: String { state.engine.key(date) }
-    var body: some View {
-        VStack(alignment:.leading,spacing:12) {
-            HStack {
-                Text(state.engine.format(date,"M月d日 EEEE")).font(.headline)
-                Spacer()
-                Text("当天小记").font(.caption).foregroundStyle(.secondary)
-            }
-            TextEditor(text:$draft).font(.system(size:13)).focused($focused)
-                .scrollContentBackground(.hidden).padding(8).frame(height:125)
-                .background(palette.card,in:RoundedRectangle(cornerRadius:9))
-            HStack {
-                if state.notes[key] != nil {
-                    Button("删除",role:.destructive) { state.notes.removeValue(forKey:key); dismiss() }
-                }
-                Spacer()
-                Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("保存") {
-                    let text = draft.trimmingCharacters(in:.whitespacesAndNewlines)
-                    if text.isEmpty { state.notes.removeValue(forKey:key) } else { state.notes[key] = text }
-                    dismiss()
-                }.keyboardShortcut(.return,modifiers:.command).buttonStyle(.borderedProminent)
-            }.controlSize(.small)
-        }.padding(18).frame(width:330)
-            .foregroundStyle(palette.text).background(palette.backing)
-            .environment(\.colorScheme,scheme).tint(state.accent)
-            .onAppear { draft = state.notes[key] ?? ""; focused = true }
-            .preferredColorScheme(state.colorScheme)
     }
 }

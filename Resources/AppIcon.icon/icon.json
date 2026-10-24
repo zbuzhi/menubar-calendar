@@ -1,0 +1,73 @@
+{
+  "fill": {
+    "solid": "extended-srgb:0.97000,0.96000,0.93000,1.00000"
+  },
+  "groups": [
+    {
+      "name": "不知时日历",
+      "layers": [
+        {
+          "image-name": "wordmark.svg",
+          "name": "不知时与历字标",
+          "glass": false,
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.92000,0.94000,0.96000,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:0.92000,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "image-name": "calendar.svg",
+          "name": "日历顶栏",
+          "glass": false,
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.92000,0.94000,0.96000,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:0.92000,1.00000"
+              }
+            }
+          ]
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "specular": false
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  },
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "extended-srgb:0.97000,0.96000,0.93000,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": "system-dark"
+    }
+  ]
+}

@@ -15,7 +15,7 @@ import uuid
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 def main(release, remote_expect):
-    app = ROOT/'dist/日历.app'
+    app = ROOT/'dist/不知时日历.app'
     info = plistlib.loads((app/'Contents/Info.plist').read_bytes())
     env = dict(os.environ, CLANG_MODULE_CACHE_PATH=str(ROOT/'.build/clang-cache'))
     env['EXPECTED_BUILD'] = info['CFBundleVersion']

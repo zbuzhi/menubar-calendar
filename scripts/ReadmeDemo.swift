@@ -15,7 +15,7 @@ struct DemoScene: View {
     var body: some View {
         VStack(spacing:14) {
             HStack {
-                Text("日历").font(.system(size:21,weight:.semibold))
+                Text("不知时日历").font(.system(size:21,weight:.semibold))
                 Text("macOS 菜单栏万年历").font(.system(size:12)).foregroundStyle(.secondary)
                 Spacer()
                 Text("原生界面演示").font(.system(size:10)).foregroundStyle(.secondary)
@@ -85,7 +85,7 @@ final class DemoPointer: NSView {
         state.preferences.accent = "blue"
         state.selected = state.engine.date(2026,10,23,hour:20,minute:32,second:34)
         state.month = state.selected
-        state.notes = [:]
+        state.saveNotes(NoteDocument())
         state.availableHeight = 1000
         window = NSWindow(contentRect:NSRect(x:0,y:0,width:961,height:868),styleMask:[.borderless],backing:.buffered,defer:false)
         window.isReleasedWhenClosed = false

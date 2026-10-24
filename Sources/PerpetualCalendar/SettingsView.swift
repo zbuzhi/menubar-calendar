@@ -202,8 +202,8 @@ struct SettingsView: View {
                 if let error = state.loginError { Text(error).font(.caption).foregroundStyle(palette.text) }
                 HStack { Text("展开 / 收起"); Spacer(); Text("⌃⌥空格").foregroundStyle(palette.secondary) }.font(.system(size:12))
             }
-            section("当天小记") {
-                HStack { Text("已保存 \(state.notes.count) 天").font(.system(size:12)); Spacer(); Button("导出备份…") { state.exportNotes() } }
+            section("小记") {
+                HStack { Text("已保存 \(state.noteDocument.entries.count) 条 · \(Set(state.noteDocument.entries.map(\.date)).count) 天").font(.system(size:12)); Spacer(); Button("导出备份…") { state.exportNotes() } }
             }
             DisclosureGroup("历法、假期与数据说明",isExpanded:$dataInfo) {
                 VStack(alignment:.leading,spacing:10) {

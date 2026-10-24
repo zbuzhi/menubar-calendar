@@ -165,6 +165,20 @@ final class CalendarEngineTests {
     }
 }
 
+func checkNoteRanges() {
+    let engine = CalendarEngine(), anchor = engine.date(2027,1,3)
+    let week = NoteDateRange(scope:.week,anchor:anchor,from:anchor,through:anchor,engine:engine)
+    XCTAssertEqual(week.start,"2026-12-28"); XCTAssertEqual(week.end,"2027-01-03")
+    XCTAssertTrue(week.contains("2026-12-28") && week.contains("2027-01-03") && !week.contains("2027-01-04"))
+    let leap = engine.date(2028,2,12)
+    let month = NoteDateRange(scope:.month,anchor:leap,from:leap,through:leap,engine:engine)
+    XCTAssertEqual(month.start,"2028-02-01"); XCTAssertEqual(month.end,"2028-02-29")
+    let custom = NoteDateRange(scope:.custom,anchor:anchor,from:engine.date(2027,2,4),through:anchor,engine:engine)
+    XCTAssertEqual(custom.start,"2027-01-03"); XCTAssertEqual(custom.end,"2027-02-04")
+    XCTAssertTrue(NoteDateRange(scope:.all,anchor:anchor,from:anchor,through:anchor,engine:engine).contains("2020-01-01"))
+    print("Checked: note ranges, inclusive boundaries, Monday weeks across years and leap months")
+}
+
 @main struct CheckRunner { static func main() async {
 if let option = CommandLine.arguments.firstIndex(of:"--validate-holidays"), CommandLine.arguments.count > option + 1 {
     do {
@@ -209,7 +223,8 @@ checks.testHoverSpringCanReverseWithoutResettingVelocity(); print("Checked: cont
 checks.testHoverSpringIsStableAcrossRefreshRatesAndStalls(); print("Checked: hover refresh rates and stalls")
 checks.testIconSizeCannotExceedDateFont(); print("Checked: continuous icon range and invalid values")
 checks.testThemeAccentsRemainReadable(); print("Checked: accent and selection text contrast")
+checkNoteRanges()
 await checkHolidayRepository()
 checkBelowPlacement()
-if failures > 0 { print("FAILED: \(failures) assertions"); exit(1) }; print("All 18 check groups passed.")
+if failures > 0 { print("FAILED: \(failures) assertions"); exit(1) }; print("All 19 check groups passed.")
 } }

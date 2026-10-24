@@ -15,6 +15,7 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     let state = AppState()
     var statusItem: NSStatusItem!
+    var noteWindow: NoteWindowController?
     var panel: CalendarPanel!
     var stateSubscription: AnyCancellable?
     var globalClickMonitor: Any?
@@ -38,9 +39,9 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         statusItem.button?.target = self
         statusItem.button?.action = #selector(statusClicked)
         statusItem.button?.sendAction(on:[.leftMouseUp,.rightMouseUp])
-        statusItem.button?.toolTip = "日历 · ⌃⌥空格打开 · 右键复制"
+        statusItem.button?.toolTip = AppBrand.name + " · ⌃⌥空格打开 · 右键复制"
         panel = CalendarPanel(contentRect:NSRect(x:0,y:0,width:420,height:700),styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
-        panel.title = "日历"
+        panel.title = AppBrand.name
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -49,6 +50,14 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         panel.level = .statusBar
         panel.collectionBehavior = [.moveToActiveSpace,.fullScreenAuxiliary]
         panel.contentView = TransparentHostingView(rootView:WorkspaceView().environmentObject(state))
+        state.onNotePresentationChange = { [weak self] in self?.syncNoteWindow() }
+        state.onNoteClose = { [weak self] in self?.state.noteEditorDate = nil }
+        state.onNotePinChange = { [weak self] in
+            guard let self else { return }
+            self.noteWindow?.updatePin()
+            if self.state.notePinned { self.hidePanel() }
+        }
+        state.onNoteResetSize = { [weak self] in self?.noteWindow?.resetSize() }
         state.onSettings = { [weak self] in self?.toggleSettings() }
         state.onShowSettings = { [weak self] in self?.showSettings() }
         state.onPreferencesChange = { [weak self] in self?.updateStatus() }
@@ -63,6 +72,7 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         if let timer { RunLoop.main.add(timer,forMode:.common) }
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName:NSWorkspace.didWakeNotification,object:nil,queue:.main) { [weak self] _ in MainActor.assumeIsolated { self?.updateStatus() } }
         dateObserver = NotificationCenter.default.addObserver(forName:.NSCalendarDayChanged,object:nil,queue:.main) { [weak self] _ in MainActor.assumeIsolated { self?.updateStatus() } }
+        installEditMenu()
         installKeyboard()
         registerHotkey()
         if ProcessInfo.processInfo.arguments.contains("--show") { DispatchQueue.main.asyncAfter(deadline:.now()+0.5) { self.showPopover() } }
@@ -71,7 +81,7 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
     func updateStatus() {
         let now = Date()
         let value = state.render(state.preferences.menuTemplate,at:now)
-        statusItem.button?.title = value.isEmpty ? "日历" : value
+        statusItem.button?.title = value.isEmpty ? AppBrand.name : value
         statusItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize:12,weight:state.usesBoldText ? .semibold : .regular)
         statusItem.button?.setAccessibilityLabel("日历，"+value)
         let today = state.engine.key(now)
@@ -83,7 +93,7 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         return window.convertToScreen(button.convert(button.bounds,to:nil))
     }
     func handleOutsideClick(at point: NSPoint) {
-        guard !state.pinned else { return }
+        guard !state.pinned, !NoteSaveDialog.isPresenting else { return }
         // The status-item action handles this click on mouse-up. Closing here
         // on mouse-down would make that action reopen the panel.
         guard statusItemFrame?.contains(point) != true else { return }
@@ -98,8 +108,15 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         state.refreshHolidays()
         layoutPanel()
         panel.makeKeyAndOrderFront(nil)
+        noteWindow?.updateAnchor(near:panel)
     }
-    func hidePanel() { panel.orderOut(nil); state.settingsPresented = false; state.noteEditorDate = nil }
+    func syncNoteWindow() {
+        if let date = state.noteEditorDate {
+            if noteWindow == nil { noteWindow = NoteWindowController(state:state) }
+            noteWindow?.show(date:date,near:panel)
+        } else { noteWindow?.hide() }
+    }
+    func hidePanel() { state.onNoteSave?(); panel.orderOut(nil); noteWindow?.updateAnchor(near:panel); state.settingsPresented = false; if !state.notePinned { state.noteEditorDate = nil } }
     func toggleSettings() {
         state.settingsPresented.toggle()
         showPopover()
@@ -147,7 +164,7 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         updateItem.target = self
         updateItem.isEnabled = state.softwareUpdater.canCheck
         menu.addItem(updateItem)
-        add(menu,"退出日历",#selector(quit))
+        add(menu,"退出" + AppBrand.name,#selector(quit))
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
@@ -158,10 +175,46 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
     @objc func checkSoftwareUpdates() { state.openSettings(tab:"updates"); state.softwareUpdater.check() }
     @objc func copyCurrent() { state.copy(state.preferences.menuTemplate) }
     @objc func copyStandard() { state.copy(state.preferences.copyTemplate) }
-    @objc func quit() { NSApp.terminate(nil) }
+    @objc func quit() { state.onNoteSave?(); NSApp.terminate(nil) }
+    private var editingUndoManager: UndoManager? {
+        if let text = NSApp.keyWindow?.firstResponder as? NSTextView { return text.undoManager }
+        return state.noteUndoManager ?? NSApp.keyWindow?.firstResponder?.undoManager
+    }
+    @objc func editUndo(_ sender: Any?) { editingUndoManager?.undo() }
+    @objc func editRedo(_ sender: Any?) { editingUndoManager?.redo() }
+    @objc func addNote(_ sender: Any?) { state.onNoteAdd?() }
+    @objc func saveNote(_ sender: Any?) { state.onNoteSave?() }
+
+    func installEditMenu() {
+        let menu = NSMenu()
+        let applicationItem = NSMenuItem()
+        let applicationMenu = NSMenu(title:AppBrand.name)
+        let quitItem = NSMenuItem(title:"退出" + AppBrand.name,action:#selector(quit),keyEquivalent:"q")
+        quitItem.target = self; applicationMenu.addItem(quitItem)
+        applicationItem.submenu = applicationMenu; menu.addItem(applicationItem)
+        let root = NSMenuItem(title:"编辑",action:nil,keyEquivalent:"")
+        let edit = NSMenu(title:"编辑")
+        for (title, action, key, shift) in [
+            ("撤销", "editUndo:", "z", false), ("重做", "editRedo:", "z", true),
+            ("剪切", "cut:", "x", false), ("复制", "copy:", "c", false),
+            ("粘贴", "paste:", "v", false), ("全选", "selectAll:", "a", false)
+        ] {
+            let item = NSMenuItem(title:title,action:NSSelectorFromString(action),keyEquivalent:shift ? key.uppercased() : key)
+            item.keyEquivalentModifierMask = shift ? [.command,.shift] : [.command]
+            if action == "editUndo:" || action == "editRedo:" { item.target = self }
+            edit.addItem(item)
+        }
+        let save = NSMenuItem(title:"保存小记",action:#selector(saveNote(_:)),keyEquivalent:"s")
+        save.target = self; edit.addItem(save)
+        let addNoteItem = NSMenuItem(title:"追加小记",action:#selector(addNote(_:)),keyEquivalent:"n")
+        addNoteItem.target = self; edit.addItem(addNoteItem)
+        root.submenu = edit; menu.addItem(root); NSApp.mainMenu = menu
+    }
     func installKeyboard() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching:.keyDown) { [weak self] event in
-            guard let self, self.panel.isVisible, event.window === self.panel else { return event }
+            guard let self else { return event }
+            if let text = event.window?.firstResponder as? GrowingNoteTextView, text.handleMarkdownKey(event) { return nil }
+            guard self.panel.isVisible, event.window === self.panel else { return event }
             if let responder = self.panel.firstResponder, responder is NSTextView { return event }
             if event.keyCode == 53 {
                 if self.state.settingsPresented { self.state.settingsPresented = false } else { self.hidePanel() }
@@ -191,6 +244,7 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         if status != noErr { state.message("快捷键已被占用，可点击菜单栏打开") }
     }
     func applicationWillTerminate(_ notification:Notification) {
+        state.onNoteSave?()
         timer?.invalidate()
         if let hotKey { UnregisterEventHotKey(hotKey) }
         if let eventHandler { RemoveEventHandler(eventHandler) }

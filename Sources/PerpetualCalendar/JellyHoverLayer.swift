@@ -12,8 +12,9 @@ struct JellyHoverLayer: NSViewRepresentable {
     let frames: [CGRect]
     let color: NSColor
     let mode: String
+    var rowStyle = false
     func makeNSView(context: Context) -> HoverTrackingView { HoverTrackingView() }
-    func updateNSView(_ view: HoverTrackingView, context: Context) { view.configure(frames:frames,color:color,mode:mode) }
+    func updateNSView(_ view: HoverTrackingView, context: Context) { view.configure(frames:frames,color:color,mode:mode,rowStyle:rowStyle) }
 }
 
 final class HoverTrackingView: NSView {
@@ -28,6 +29,7 @@ final class HoverTrackingView: NSView {
     private var lastTime = 0.0
     private var mode = "soft"
     private var pointer: CGPoint?
+    private var rowStyle = false
     private let lens: NSView
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
@@ -52,11 +54,12 @@ final class HoverTrackingView: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    func configure(frames: [CGRect], color: NSColor, mode: String) {
+    func configure(frames: [CGRect], color: NSColor, mode: String, rowStyle: Bool = false) {
+        self.rowStyle = rowStyle
         cellFrames = frames
         self.mode = mode
-        if #available(macOS 26.0, *), let glass = lens as? NSGlassEffectView { glass.tintColor = color.withAlphaComponent(0.12) }
-        else { lens.layer?.backgroundColor = color.withAlphaComponent(0.09).cgColor }
+        if #available(macOS 26.0, *), let glass = lens as? NSGlassEffectView { glass.tintColor = color.withAlphaComponent(rowStyle ? 0.025 : 0.12) }
+        else { lens.layer?.backgroundColor = color.withAlphaComponent(rowStyle ? 0.025 : 0.09).cgColor }
         if let pointer { retarget(pointer) }
     }
     override func updateTrackingAreas() {
@@ -71,17 +74,18 @@ final class HoverTrackingView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil { stopTicker(); visible = false; opacity = 0; lens.alphaValue = 0; pointer = nil }
+        else { window?.acceptsMouseMovedEvents = true }
     }
     private func retarget(_ point: CGPoint) {
         pointer = point
-        guard let first = cellFrames.first else { return }
+        guard let first = cellFrames.first else { visible = false; startTicker(); return }
         let area = cellFrames.dropFirst().reduce(first) { $0.union($1) }
-        guard area.contains(point), let cell = cellFrames.min(by:{ distance(point,$0) < distance(point,$1) }) else { visible = false; startTicker(); return }
+        guard area.contains(point), let cell = cellFrames.first(where:{ $0.contains(point) }) ?? (rowStyle ? nil : cellFrames.min(by:{ distance(point,$0) < distance(point,$1) })) else { visible = false; startTicker(); return }
         let center = CGPoint(x:cell.midX,y:cell.midY)
-        let target = CGPoint(x:center.x + min(2.5,max(-2.5,(point.x-center.x)*0.08)),y:center.y + min(2.5,max(-2.5,(point.y-center.y)*0.08)))
-        if opacity < 0.01 { spring = HoverSpring(position:target); cellSize = cell.insetBy(dx:1,dy:1).size }
+        let target = rowStyle ? center : CGPoint(x:center.x + min(2.5,max(-2.5,(point.x-center.x)*0.08)),y:center.y + min(2.5,max(-2.5,(point.y-center.y)*0.08)))
+        if opacity < 0.01 { spring = HoverSpring(position:target); cellSize = cell.insetBy(dx:rowStyle ? 0 : 1,dy:rowStyle ? 0 : 1).size }
         spring.target = target
-        targetSize = cell.insetBy(dx:1,dy:1).size
+        targetSize = cell.insetBy(dx:rowStyle ? 0 : 1,dy:rowStyle ? 0 : 1).size
         visible = true
         if mode == "off" {
             spring = HoverSpring(position:target); cellSize = targetSize; opacity = 1; drawFrame(); stopTicker()
@@ -108,7 +112,7 @@ final class HoverTrackingView: NSView {
         if spring.isSettled && abs(opacity-(visible ? 1 : 0)) < 0.005 { stopTicker() }
     }
     private func drawFrame() {
-        let factor = mode == "jelly" ? 1.0 : 0.3
+        let factor = rowStyle ? 0.0 : mode == "jelly" ? 1.0 : 0.3
         let sx = 1 + factor*(min(0.16,abs(spring.velocity.dx)/2200)-min(0.045,abs(spring.velocity.dy)/6500))
         let sy = 1 + factor*(min(0.14,abs(spring.velocity.dy)/2200)-min(0.045,abs(spring.velocity.dx)/6500))
         let size = CGSize(width:cellSize.width*sx,height:cellSize.height*sy)

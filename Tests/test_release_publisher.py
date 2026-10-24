@@ -4,11 +4,13 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import plistlib
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import xml.etree.ElementTree as ET
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'scripts'))
@@ -92,6 +94,42 @@ class PublisherChecks(unittest.TestCase):
         self.concurrent = True
         with self.assertRaisesRegex(SystemExit, '清单未更新'): self.run_publish(True)
         self.assertEqual(sum('--method' in a for a, _ in self.calls), 1)
+
+
+class ReleaseNameCompatibilityChecks(unittest.TestCase):
+    def test_current_and_historical_signed_release_names_remain_supported(self):
+        import prepare_release_support as support
+        key = plistlib.loads((ROOT/'Resources/Info.plist').read_bytes())['SUPublicEDKey']
+        cases = [('zbuzhi/menubar-calendar', 'menubar-calendar'),
+                 ('zbuzhi/calendar-holidays', 'PerpetualCalendar')]
+        for repository, prefix in cases:
+            with self.subTest(repository=repository), tempfile.TemporaryDirectory() as folder:
+                directory = pathlib.Path(folder)
+                name = f'{prefix}-0.1.9-universal.zip'
+                archive = directory/name
+                archive.write_bytes(b'fixture archive')
+                rss = ET.Element('rss')
+                item = ET.SubElement(ET.SubElement(rss, 'channel'), 'item')
+                ET.SubElement(item, support.NS+'version').text = '10'
+                ET.SubElement(item, support.NS+'shortVersionString').text = '0.1.9'
+                ET.SubElement(item, 'enclosure', {
+                    'url': f'https://github.com/{repository}/releases/download/app-v0.1.9/{name}',
+                    'length': str(archive.stat().st_size), support.NS+'edSignature': 'fixture'})
+                feed = directory/'appcast.xml'
+                feed.write_bytes(ET.tostring(rss))
+                meta = dict(repository=repository, version='0.1.9', tag='app-v0.1.9', build=10,
+                            archive=name, publicKey=key,
+                            sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
+                            appcastSHA256=hashlib.sha256(feed.read_bytes()).hexdigest())
+                (directory/'release.json').write_text(json.dumps(meta))
+                with patch.object(support, 'verify_signature') as verify:
+                    self.assertEqual(support.load_release(directory), (meta, archive, feed))
+                    self.assertEqual(verify.call_count, 2)
+                # Repository migration must still reject a mismatched download destination.
+                meta['repository'] = 'zbuzhi/calendar-holidays' if repository != 'zbuzhi/calendar-holidays' else 'zbuzhi/menubar-calendar'
+                (directory/'release.json').write_text(json.dumps(meta))
+                with patch.object(support, 'verify_signature'), self.assertRaisesRegex(ValueError, '元数据不一致'):
+                    support.load_release(directory)
 
 if __name__ == '__main__':
     unittest.main()

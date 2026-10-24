@@ -1,8 +1,8 @@
-# 日历 · 软件更新与发布
+# 不知时日历 · 软件更新与发布
 
 软件更新采用 Sparkle 2.10.0，依赖版本及下载校验由 SwiftPM 锁定。安装包发布到公开仓库 `zbuzhi/menubar-calendar` 的 Releases。兼容现有用户的更新渠道继续使用 `zbuzhi/calendar-holidays`：`updates/appcast.xml` 是签名软件更新清单；`index.json` 和 `years/` 仍只负责节假日数据，两者互不依赖。
 
-应用显示名称为「日历」，源码项目名为 `menubar-calendar`。后续安装包命名为 `menubar-calendar-版本-universal.zip`，包内为 `日历.app`；内部可执行文件仍为 `PerpetualCalendar`。保留 bundle ID 与钥匙串账户，保证设置、小记和更新签名连续性。源码及安装包使用新仓库；签名清单保留现有地址，以兼容旧版更新器。以前的已签名包不修改、不重新命名，发布验证兼容其原有名称。
+项目对外名称及应用显示名称为「不知时日历」，源码仓库为 `menubar-calendar`。后续安装包命名为 `menubar-calendar-版本-universal.zip`，包内为 `不知时日历.app`；内部可执行文件仍为 `PerpetualCalendar`。图标由 `Resources/AppIcon.icon` 编译为 `Assets.car` 与兼容 `.icns`，发布时应使用完整构建目录。保留 bundle ID 与钥匙串账户，保证设置、小记和更新签名连续性。源码及安装包继续使用原仓库；签名清单保留现有地址，以兼容旧版更新器。以前的已签名包不修改、不重新命名，发布验证兼容其原有名称。
 
 ## 用户体验
 
@@ -29,12 +29,12 @@ python3 scripts/setup-updates.py
 
 ## 准备版本
 
-1. 更新 `Resources/Info.plist` 的 `CFBundleShortVersionString`（例如 0.1.8）和 `CFBundleVersion`（例如 9）；构建号必须递增。不要重复使用已发布版本号。
+1. 更新 `Resources/Info.plist` 的 `CFBundleShortVersionString`（例如 0.2.0）和 `CFBundleVersion`（例如 11）；构建号必须递增。不要重复使用已发布版本号。
 2. 在本机运行 `./scripts/check.sh`、`./scripts/build-app.sh`，核对 Intel 与 Apple Silicon 通用构建。
 3. 写好本次更新说明，运行：
 
 ```sh
-python3 scripts/prepare-release.py --notes Resources/ReleaseNotes-0.1.8.md
+python3 scripts/prepare-release.py --notes Resources/ReleaseNotes-0.2.0.md
 ```
 
 输出 `dist/releases/app-v版本/`：通用 zip、已签名 `appcast.xml`、说明及 `release.json`。脚本校验 bundle ID、更新地址、双架构、代码签名和钥匙串公钥，使用 `ditto` 保留框架符号链接，然后签名、复验安装包与清单。已存在的版本输出目录不会覆盖；修改包后须重新准备签名，不能手工修改已签名 XML。
@@ -46,13 +46,13 @@ python3 scripts/prepare-release.py --notes Resources/ReleaseNotes-0.1.8.md
 可使用 GitHub 官方 CLI（`gh`，需自行登录），先创建草稿供核对：
 
 ```sh
-python3 scripts/publish-release.py dist/releases/app-v0.1.8
+python3 scripts/publish-release.py dist/releases/app-v0.2.0
 ```
 
 确认要对外发布该版本后：
 
 ```sh
-python3 scripts/publish-release.py dist/releases/app-v0.1.8 --publish
+python3 scripts/publish-release.py dist/releases/app-v0.2.0 --publish
 ```
 
 发布脚本只允许既定公开仓库，复验本地文件与签名，拒绝构建号回退；上传后下载核对安装包 SHA-256，再公开 Release，最后用旧 blob SHA 条件更新清单，避免并发覆盖。网络中断可核对后重试，不替换已上传的不同包。若安装包已公开而清单更新失败，用户仍使用旧清单；修复后重新执行即可。
@@ -71,12 +71,12 @@ Sparkle 签名和 GitHub 托管可以免费完成。Apple Developer ID 签名与
 CALENDAR_SIGN_IDENTITY='Developer ID Application: 你的证书名称' ./scripts/build-app.sh
 ```
 
-脚本从内到外签署 Sparkle helpers、框架和主应用，并开启 Hardened Runtime。随后使用自己的 Apple 公证凭据完成公证和 stapling，再执行 `prepare-release.py`。需要完整 Xcode 中的 `notarytool`/`stapler`；当前仅安装 Command Line Tools，脚本不会代为购买资格或提交凭据。
+脚本从内到外签署 Sparkle helpers、框架和主应用，并开启 Hardened Runtime。随后使用自己的 Apple 公证凭据完成公证和 stapling，再执行 `prepare-release.py`。公证需要完整 Xcode 中的 `notarytool`/`stapler`；脚本不会代为购买资格或提交凭据。
 
 ## 验收
 
-- `codesign --verify --deep --strict dist/日历.app`。
+- `codesign --verify --deep --strict dist/不知时日历.app`。
 - 安装目录与 app 名保持一致，最低 macOS 13，主程序与 Sparkle 均为双架构。
 - 在隔离测试 .app 中检查：合法签名新版本可识别、初始无版本清单正常返回、篡改签名清单被拒绝；不要用真实用户设置域做自动化更新安装实验。
-- 执行 `python3 Tests/check-software-updates.py dist/releases/app-v0.1.8` 可复验上述三种情况及 GitHub 真实更新地址；`python3 -m unittest discover -s Tests -p 'test_release_publisher.py' -v` 校验发布顺序、仅草稿、安装包变化、私有仓库、版本回退和并发保护，测试不访问 GitHub 或上传文件。
+- 执行 `python3 Tests/check-software-updates.py dist/releases/app-v0.2.0` 可复验上述三种情况及 GitHub 真实更新地址；`python3 -m unittest discover -s Tests -p 'test_release_publisher.py' -v` 校验发布顺序、仅草稿、安装包变化、私有仓库、版本回退和并发保护，测试不访问 GitHub 或上传文件。
 - 实际安装与重启应在正式发行包和目标系统上再验收，尤其是 Developer ID、公证、Intel 实机及登录自启。

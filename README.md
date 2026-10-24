@@ -1,6 +1,8 @@
 <div align="center">
 
-# 日历
+<img src="docs/assets/logo.png" width="112" alt="不知时日历图标">
+
+# 不知时日历
 
 **菜单栏里的农历、节气与每一天。**
 
@@ -8,7 +10,7 @@
 
 [下载最新版](https://github.com/zbuzhi/menubar-calendar/releases/latest) · [查看版本记录](https://github.com/zbuzhi/menubar-calendar/releases) · [反馈问题](https://github.com/zbuzhi/menubar-calendar/issues)
 
-macOS 13+ · Apple Silicon / Intel · MIT License
+0.2.0 · macOS 13+ · Apple Silicon / Intel · MIT License
 
 </div>
 
@@ -16,14 +18,14 @@ macOS 13+ · Apple Silicon / Intel · MIT License
 
 ## 抬眼看时间，点开看日子
 
-日历常驻 Mac 顶部菜单栏，不占 Dock。点击日期，展开月历；农历、节气、放假补班、实时时钟和当天进度，一眼就能看到。设置在月历旁边展开，调整后即时预览。
+不知时日历常驻 Mac 顶部菜单栏，不占 Dock。点击日期，展开月历；农历、节气、放假补班、实时时钟和当天进度，一眼就能看到。设置在月历旁边展开，调整后即时预览。
 
 - **公历与农历**：支持农历日期、闰月、干支年份、生肖和中国传统节日，可查询 1901—2100 年。
 - **节气与时令**：查看二十四节气、交节倒计时、节气第几天，以及星座进度、月相和年度进度。
 - **节假日与调休**：标记“休 / 班”，支持假期倒计时和本地缓存；未公布年份不猜测放假安排。
 - **按你的习惯显示时间**：平滑走秒、传统时辰与刻数，自由组合菜单栏字段、顺序和分隔符，点击或右键复制日期。
 - **按你的喜好调整外观**：12 种主题色、浅色 / 深色 / 跟随系统，支持字体加粗、液态玻璃风格与淡彩染色、磨砂和纯色背景，以及果冻悬停动效。
-- **保留刚刚好的小功能**：年度缩略图、日期对比、当天小记、图标大小滑杆和显示开关；小记可导出备份。
+- **保留刚刚好的小功能**：年度缩略图、日期对比、标签小记、图标大小滑杆和显示开关；小记支持多条待办、完成勾选、跨日期筛选和 PDF／Markdown 导出与 JSON 备份。
 
 ## 看看怎么用
 
@@ -34,7 +36,7 @@ macOS 13+ · Apple Silicon / Intel · MIT License
 ## 下载与安装
 
 1. 打开 [最新版本](https://github.com/zbuzhi/menubar-calendar/releases/latest)，下载 **`menubar-calendar-版本-universal.zip`**。
-2. 解压，将 **日历.app** 拖到“应用程序”文件夹，再打开。
+2. 解压，将 **不知时日历.app** 拖到“应用程序”文件夹，再打开。
 3. 点击顶部菜单栏的日期开始使用；如需开机启动，在“设置 → 通用”中开启。
 
 支持 macOS 13 及以上，通用安装包兼容 Apple Silicon 与 Intel。**macOS 26 及以上支持原生 Liquid Glass**，较旧系统使用兼容材质。
@@ -50,8 +52,16 @@ macOS 13+ · Apple Silicon / Intel · MIT License
 | 切换月份或跳转日期 | 点击左右箭头，或点击年月标题 |
 | 调整主题和显示内容 | 点击底部齿轮，设置与月历并排预览 |
 | 复制日期与时间 | 点击底部时钟，或右键菜单栏日期选择格式 |
-| 添加当天小记 | 选中日期，点击“添加当天小记”，保存后仅留在本机 |
+| 小记与待办 | 点击日历下方“小记”，输入自动保存；支持标签、完成勾选和独立置顶 |
 | 检查软件新版本 | 设置 → 更新 → 软件更新，也可从菜单栏右键菜单进入 |
+
+## 小记，随手记下就好
+
+- 多条记录、彩色标签与完成勾选，支持简单 Markdown 和常用编辑快捷键。
+- 可查看当天、本周、本月或自定义日期范围，按天分组、按标签筛选，支持批量编辑。
+- 输入自动保存，可独立置顶、拖动和调整窗口大小；按日期与标签导出 PDF／Markdown，也可备份 JSON。
+
+小记仅保存在本机，升级会保留原有内容。详细的数据结构与迁移约定见 [小记数据协议](docs/NOTES.md)。
 
 ## 更新与隐私
 
@@ -69,7 +79,7 @@ macOS 13+ · Apple Silicon / Intel · MIT License
 
 ```sh
 ./scripts/build-app.sh
-open dist/日历.app
+open dist/不知时日历.app
 ```
 
 [开发与检查说明](docs/DEVELOPMENT.md) · [软件更新与发布说明](docs/RELEASING.md)

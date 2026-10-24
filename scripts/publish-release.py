@@ -40,7 +40,7 @@ def publish(directory, make_public):
     existing = gh('release', 'view', tag, '--repo', repo, '--json', 'isDraft', check=False)
     if existing.returncode != 0:
         gh('release', 'create', tag, str(archive), '--repo', repo, '--target', 'main', '--draft',
-           '--title', f'日历 {meta["version"]}', '--notes-file', str(directory/'release-notes.md'))
+           '--title', f'不知时日历 {meta["version"]}', '--notes-file', str(directory/'release-notes.md'))
     # Validate the actual download, including when resuming a previous upload.
     with tempfile.TemporaryDirectory(prefix='calendar-release-') as folder:
         gh('release', 'download', tag, '--repo', repo, '--pattern', archive.name, '--dir', folder)

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CalendarCore
 
 /// Renders only this application's own views. Native backdrop capture is not a desktop screenshot.
 @MainActor enum PreviewRenderer {
@@ -13,6 +14,15 @@ import SwiftUI
         var maximumIcons = false
         var below = false
         var note = false
+        var editingNote = false
+        var simpleNote = false
+        var expandedTags = false
+        var hoverNote = false
+        var exportOptions = false
+        var manyTags = false
+        var weekNote = false
+        var pinnedNote = false
+        var rangeOptions = false
         var accent = "blue"
         var bold = false
     }
@@ -27,6 +37,15 @@ import SwiftUI
         let window = NSWindow(contentRect:NSRect(x:0,y:0,width:620,height:690),styleMask:[.borderless],backing:.buffered,defer:false)
         window.isReleasedWhenClosed = false; window.backgroundColor = .clear; window.isOpaque = false
         var jobs = [
+            Job(name:"note-week",theme:"light",material:"solid",tab:"",note:true,weekNote:true),
+            Job(name:"note-tags-many",theme:"light",material:"solid",tab:"",note:true,expandedTags:true,manyTags:true),
+            Job(name:"note-pinned",theme:"light",material:"solid",tab:"",note:true,pinnedNote:true),
+            Job(name:"note-ranges",theme:"light",material:"solid",tab:"",note:true,rangeOptions:true),
+            Job(name:"note-tags",theme:"light",material:"solid",tab:"",note:true,expandedTags:true),
+            Job(name:"note-hover",theme:"light",material:"solid",tab:"",note:true,hoverNote:true),
+            Job(name:"note-export-options",theme:"light",material:"solid",tab:"",note:true,exportOptions:true),
+            Job(name:"note-simple",theme:"light",material:"solid",tab:"",note:true,simpleNote:true),
+            Job(name:"note-writing",theme:"light",material:"solid",tab:"",note:true,editingNote:true),
             Job(name:"note-editor-dark",theme:"dark",material:"solid",tab:"",note:true),
             Job(name:"note-editor",theme:"light",material:"solid",tab:"",note:true),
             Job(name:"settings-general",theme:"light",material:"solid",tab:"general"),
@@ -71,9 +90,31 @@ import SwiftUI
             let content: AnyView
             let size: NSSize
             if job.note {
-                state.notes[state.engine.key(state.selected)] = "今晚去散步，顺路买一束花。"
-                content = AnyView(NoteEditor(date:state.selected).environmentObject(state))
-                size = NSSize(width:366,height:245)
+                state.noteSimpleDisplay = job.simpleNote
+                state.notePinned = job.pinnedNote
+                let noteDate = Date()
+                let noteKey = state.engine.key(noteDate)
+                var notes = NoteDocument()
+                notes.entries = [
+                    NoteEntry(date:noteKey,text:"## 把想法慢慢记下来\n\n1. 增加贸易条款（交货方式）的评分维护\n2. 议价报告所需的字段要能显示出来，考虑维度，供后面的核价单使用\n3. 跟进客户反馈，整理本周的工作安排\n\n**今天的重点**：把事情说明白，留出思考的时间。\n\n> 简单记录，慢慢完成。"),
+                    NoteEntry(date:noteKey,text:"今晚去散步，顺路买一束花。",tagIDs:[notes.tags[1].id],dueMinutes:18 * 60,now:noteDate.addingTimeInterval(-6 * 3600)),
+                    NoteEntry(date:noteKey,text:"整理本周项目进展。",tagIDs:[notes.tags[0].id],isCompleted:true)
+                ]
+                if job.manyTags { notes.tags += (1...14).map { NoteTag(name:"分类\($0)",color:NoteColors.names[$0 % NoteColors.names.count]) } }
+                if job.weekNote {
+                    notes.entries.append(NoteEntry(date:state.engine.key(state.engine.calendar.date(byAdding:.day,value:-1,to:noteDate)!),text:"整理昨日的讨论，留下下一步行动。",tagIDs:[notes.tags[0].id]))
+                }
+                state.saveNotes(notes)
+                if job.rangeOptions {
+                    content = AnyView(NoteRangePicker(scope:.month,anchor:noteDate,start:noteDate,end:noteDate,apply:{ _,_,_,_ in }).environmentObject(state).frame(maxWidth:.infinity,maxHeight:.infinity).background(SettingsPalette(.light).backing))
+                    size = NSSize(width:362,height:200)
+                } else if job.exportOptions {
+                    content = AnyView(NoteExportOptions(document:notes,date:state.selected,allDates:false,tagID:nil,format:.pdf,onExport:{ _,_,_ in }).frame(maxWidth:.infinity,maxHeight:.infinity).background(SettingsPalette(job.theme == "dark" ? .dark : .light).backing).environmentObject(state))
+                    size = NSSize(width:410,height:430)
+                } else {
+                    content = AnyView(NoteEditor(date:noteDate,initialEditingID:job.editingNote ? notes.entries.first?.id : nil,initiallyExpandedTags:job.expandedTags,initialScope:job.weekNote ? .week : .day).environmentObject(state))
+                    size = AppState.defaultNoteEditorSize
+                }
             } else if job.workspace {
                 content = AnyView(WorkspaceView().environmentObject(state))
                 size = NSSize(width:job.below ? 620 : 1041,height:state.workspaceHeight)
@@ -88,7 +129,17 @@ import SwiftUI
             let hosting = NSHostingView(rootView:content)
             window.contentView = hosting; hosting.frame.size = size
             window.setContentSize(size); window.orderFrontRegardless()
-            DispatchQueue.main.asyncAfter(deadline:.now()+0.25) {
+            if job.hoverNote {
+                hosting.layoutSubtreeIfNeeded()
+                func glassLayers(_ view: NSView) -> [HoverTrackingView] {
+                    (view as? HoverTrackingView).map { [$0] } ?? view.subviews.flatMap { glassLayers($0) }
+                }
+                if let layer = glassLayers(hosting).first(where:{ $0.bounds.height > 100 }) {
+                    let point = layer.convert(NSPoint(x:50,y:20),to:nil)
+                    if let event = NSEvent.mouseEvent(with:.mouseMoved,location:point,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,eventNumber:1,clickCount:0,pressure:0) { layer.mouseMoved(with:event) }
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline:.now()+0.35) {
                 save(hosting,to:directory.appendingPathComponent(job.name+".png"))
                 next(index+1)
             }
