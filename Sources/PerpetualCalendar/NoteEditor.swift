@@ -284,7 +284,9 @@ struct NoteEditor: View {
             draft.finishEditing(editingID); hints.stop(); dateHoverTask?.cancel(); noticeDismissTask?.cancel(); clearCompletionFeedback()
             if state.noteUndoManager === draft.undo { state.noteUndoManager = nil; state.onNoteSave = nil; state.onNoteAdd = nil; state.onNoteFind = nil }
         }
-        .onChange(of:dateRange) { _ in finishEditing(); selection = []; preferredInsertionDate = nil; clearCompletionFeedback() }
+        // Navigation actions finish editing before changing the range. Initialization must
+        // preserve initialEditingID when opening a note on a different day.
+        .onChange(of:dateRange) { _ in selection = []; preferredInsertionDate = nil; clearCompletionFeedback() }
         .onChange(of:tagID) { _ in finishEditing(); selection = []; clearCompletionFeedback() }
         .onChange(of:searchText) { _ in clearCompletionFeedback() }
         .onChange(of:searchAllDates) { _ in preferredInsertionDate = nil; clearCompletionFeedback() }

@@ -92,8 +92,12 @@ struct NoteRowProbe: View {
         precondition(state.saveNotes(document))
         let expandedNote = NoteHostingView(rootView:NoteEditor(date:state.engine.date(2026,10,24),fitsWindow:true,initiallyExpandedTags:true).environmentObject(state).transaction { $0.animation = nil; $0.disablesAnimations = true })
         expandedNote.sizingOptions = []; notesPanel.contentView = expandedNote
-        RunLoop.main.run(until:Date().addingTimeInterval(0.1))
-        let expandedStrip = noteStrips(expandedNote).first!
+        RunLoop.main.run(until:Date().addingTimeInterval(0.3))
+        // Native popovers host their content in a separate window.
+        func visibleStrips() -> [NoteTabStrip.StripView] {
+            NSApp.windows.filter(\.isVisible).compactMap(\.contentView).flatMap(noteStrips)
+        }
+        let expandedStrip = visibleStrips().first!
         precondition(expandedStrip.bounds.height > expandedStrip.enclosingScrollView!.contentSize.height)
         precondition(expandedStrip.enclosingScrollView!.bounds.height <= 260)
         precondition(abs(rows(expandedNote).first!.convert(.zero,to:nil).y - collapsedRowY) < 1)
@@ -103,10 +107,10 @@ struct NoteRowProbe: View {
         precondition(!rows(expandedNote).first!.configuration!.canCollapse)
         expandedStrip.configuration!.select(state.noteDocument.tags.first!.id)
         RunLoop.main.run(until:Date().addingTimeInterval(0.5))
-        if let remaining = noteStrips(expandedNote).first {
+        if let remaining = visibleStrips().first {
             FileHandle.standardError.write(Data("Tag transition: visible=\(!remaining.isHiddenOrHasHiddenAncestor), frame=\(remaining.convert(remaining.bounds,to:expandedNote)), selected=\(String(describing:remaining.configuration?.selected))\n".utf8))
         }
-        precondition(noteStrips(expandedNote).isEmpty)
+        precondition(visibleStrips().isEmpty)
         print("PASS: floating tags keep row geometry fixed, wrap within reserved width, select and collapse; single-line notes cannot fold")
         notesPanel.orderOut(nil); notesPanel.contentView = nil
     }
