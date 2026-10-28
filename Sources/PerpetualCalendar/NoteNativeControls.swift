@@ -162,6 +162,7 @@ struct NoteRowSettings: NSViewRepresentable {
     let time: () -> Void
     let tags: () -> Void
     let remove: () -> Void
+    let reschedule: (NoteMoveDestination) -> Void
     func makeNSView(context: Context) -> Area { Area() }
     func updateNSView(_ view: Area,context: Context) { view.configuration = self; view.toolTip = tagTitle + " · 点击展开设置"; view.needsDisplay = true }
     final class Area: NSView {
@@ -200,7 +201,13 @@ struct NoteRowSettings: NSViewRepresentable {
             tagMenu.addItem(.separator())
             let multiple = NSMenuItem(title:"多选标签…",action:#selector(pickTags),keyEquivalent:""); multiple.target = self; tagMenu.addItem(multiple)
             tagItem.submenu = tagMenu; menu.addItem(tagItem); menu.addItem(.separator())
-            for (title,selector) in [("编辑正文",#selector(editNote)),(value.collapsed ? "展开正文" : "折叠正文",#selector(collapseNote)),("预计完成时间…",#selector(pickTime)),("删除小记…",#selector(removeNote))] {
+            let moveItem = NSMenuItem(title:"移到日期",action:nil,keyEquivalent:"")
+            let moveMenu = NSMenu()
+            for (title,selector) in [("今天",#selector(moveToday)),("明天",#selector(moveTomorrow)),("选择日期…",#selector(moveCustom))] {
+                let item = NSMenuItem(title:title,action:selector,keyEquivalent:""); item.target = self; moveMenu.addItem(item)
+            }
+            moveItem.submenu = moveMenu; menu.addItem(moveItem)
+            for (title,selector) in [("编辑正文",#selector(editNote)),(value.collapsed ? "展开正文" : "折叠正文",#selector(collapseNote)),("预计完成时间…",#selector(pickTime)),("删除小记",#selector(removeNote))] {
                 if selector == #selector(collapseNote), !value.canCollapse { continue }
                 let item = NSMenuItem(title:title,action:selector,keyEquivalent:""); item.target = self; menu.addItem(item)
             }
@@ -214,5 +221,8 @@ struct NoteRowSettings: NSViewRepresentable {
         @objc func collapseNote() { configuration?.collapse() }
         @objc func pickTime() { configuration?.time() }
         @objc func removeNote() { configuration?.remove() }
+        @objc func moveToday() { configuration?.reschedule(.today) }
+        @objc func moveTomorrow() { configuration?.reschedule(.tomorrow) }
+        @objc func moveCustom() { configuration?.reschedule(.custom) }
     }
 }

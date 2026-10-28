@@ -23,10 +23,20 @@ import CalendarCore
         var weekNote = false
         var pinnedNote = false
         var rangeOptions = false
+        var searchQuery: String? = nil
+        var searchAllDates = false
+        var completion: NoteCompletionFilter = .all
+        var noteWidth: CGFloat? = nil
+        var hoveredDate = false
+        var crossYear = false
+        var deletionNotice = false
+        var moveOptions = false
+        var toolsOptions = false
         var accent = "blue"
         var bold = false
     }
     static func render(to directory: URL, completion: @escaping () -> Void) {
+        if ProcessInfo.processInfo.arguments.contains("--check-date-navigation"), !checkDateNavigation() { exit(1) }
         do { try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true) }
         catch { print("Preview directory failed: \(error)"); completion(); return }
         let defaults = UserDefaults(suiteName:"com.perpetualcalendar.preview")!
@@ -37,6 +47,19 @@ import CalendarCore
         let window = NSWindow(contentRect:NSRect(x:0,y:0,width:620,height:690),styleMask:[.borderless],backing:.buffered,defer:false)
         window.isReleasedWhenClosed = false; window.backgroundColor = .clear; window.isOpaque = false
         var jobs = [
+            Job(name:"note-tools",theme:"light",material:"solid",tab:"",note:true,toolsOptions:true),
+            Job(name:"note-search-plain",theme:"light",material:"solid",tab:"",note:true,searchQuery:""),
+            Job(name:"note-deleted-week",theme:"light",material:"solid",tab:"",note:true,weekNote:true,noteWidth:380,deletionNotice:true),
+            Job(name:"note-date-navigation",theme:"light",material:"solid",tab:"",note:true,noteWidth:380,hoveredDate:true),
+            Job(name:"note-cross-year",theme:"light",material:"solid",tab:"",note:true,weekNote:true,noteWidth:380,hoveredDate:true,crossYear:true),
+            Job(name:"note-deleted",theme:"light",material:"solid",tab:"",note:true,noteWidth:380,deletionNotice:true),
+            Job(name:"note-deleted-dark",theme:"dark",material:"solid",tab:"",note:true,deletionNotice:true),
+            Job(name:"note-move-date",theme:"light",material:"solid",tab:"",note:true,moveOptions:true),
+            Job(name:"note-search",theme:"light",material:"solid",tab:"",note:true,searchQuery:"项目",searchAllDates:true),
+            Job(name:"note-search-dark",theme:"dark",material:"solid",tab:"",note:true,searchQuery:"项目",searchAllDates:true),
+            Job(name:"note-search-narrow",theme:"light",material:"solid",tab:"",note:true,searchQuery:"项目",searchAllDates:true,noteWidth:380),
+            Job(name:"note-incomplete",theme:"light",material:"solid",tab:"",note:true,searchQuery:"",completion:.incomplete),
+            Job(name:"note-search-empty",theme:"light",material:"solid",tab:"",note:true,searchQuery:"没有匹配"),
             Job(name:"note-week",theme:"light",material:"solid",tab:"",note:true,weekNote:true),
             Job(name:"note-tags-many",theme:"light",material:"solid",tab:"",note:true,expandedTags:true,manyTags:true),
             Job(name:"note-pinned",theme:"light",material:"solid",tab:"",note:true,pinnedNote:true),
@@ -71,6 +94,10 @@ import CalendarCore
                 jobs.append(Job(name:"settings-\(theme)-\(material)",theme:theme,material:material,tab:"appearance"))
             }
         }
+        if let index = ProcessInfo.processInfo.arguments.firstIndex(of:"--preview-only"), ProcessInfo.processInfo.arguments.count > index + 1 {
+            let names = ProcessInfo.processInfo.arguments[index + 1].split(separator:",").map(String.init)
+            jobs = jobs.filter { names.contains($0.name) }
+        }
         func next(_ index: Int) {
             guard index < jobs.count else {
                 window.orderOut(nil)
@@ -92,7 +119,7 @@ import CalendarCore
             if job.note {
                 state.noteSimpleDisplay = job.simpleNote
                 state.notePinned = job.pinnedNote
-                let noteDate = Date()
+                let noteDate = job.crossYear ? state.engine.date(2026,12,31) : Date()
                 let noteKey = state.engine.key(noteDate)
                 var notes = NoteDocument()
                 notes.entries = [
@@ -101,19 +128,33 @@ import CalendarCore
                     NoteEntry(date:noteKey,text:"整理本周项目进展。",tagIDs:[notes.tags[0].id],isCompleted:true)
                 ]
                 if job.manyTags { notes.tags += (1...14).map { NoteTag(name:"分类\($0)",color:NoteColors.names[$0 % NoteColors.names.count]) } }
+                if job.searchQuery != nil {
+                    notes.entries.append(NoteEntry(date:noteKey,text:"项目讨论：补充 **交付范围**，确认 `供应商编号` 与下一步安排。",tagIDs:[notes.tags[0].id]))
+                    notes.entries.append(NoteEntry(date:state.engine.key(state.engine.calendar.date(byAdding:.day,value:-2,to:noteDate)!),text:"项目回顾：整理上次会议记录。",tagIDs:[notes.tags[2].id]))
+                }
                 if job.weekNote {
                     notes.entries.append(NoteEntry(date:state.engine.key(state.engine.calendar.date(byAdding:.day,value:-1,to:noteDate)!),text:"整理昨日的讨论，留下下一步行动。",tagIDs:[notes.tags[0].id]))
                 }
+                var initialNotice: NoteNotice?
+                if job.deletionNotice, let id = notes.entries.first?.id {
+                    initialNotice = .deleted(NoteDeletion(document:notes,ids:[id]))
+                    notes.entries.removeAll { $0.id == id }
+                }
                 state.saveNotes(notes)
-                if job.rangeOptions {
+                if job.moveOptions {
+                    content = AnyView(NoteMoveDatePicker(count:2,initialDate:noteDate,cancel:{},apply:{ _ in }).environmentObject(state).frame(maxWidth:.infinity,maxHeight:.infinity).background(SettingsPalette(.light).backing))
+                    size = NSSize(width:340,height:210)
+                } else if job.rangeOptions {
                     content = AnyView(NoteRangePicker(scope:.month,anchor:noteDate,start:noteDate,end:noteDate,apply:{ _,_,_,_ in }).environmentObject(state).frame(maxWidth:.infinity,maxHeight:.infinity).background(SettingsPalette(.light).backing))
                     size = NSSize(width:362,height:200)
                 } else if job.exportOptions {
-                    content = AnyView(NoteExportOptions(document:notes,date:state.selected,allDates:false,tagID:nil,format:.pdf,onExport:{ _,_,_ in }).frame(maxWidth:.infinity,maxHeight:.infinity).background(SettingsPalette(job.theme == "dark" ? .dark : .light).backing).environmentObject(state))
+                    content = AnyView(NoteExportOptions(document:notes,date:noteDate,allDates:false,tagID:nil,format:.pdf,onExport:{ _,_,_ in }).frame(maxWidth:.infinity,maxHeight:.infinity).background(SettingsPalette(job.theme == "dark" ? .dark : .light).backing).environmentObject(state))
                     size = NSSize(width:410,height:430)
                 } else {
-                    content = AnyView(NoteEditor(date:noteDate,initialEditingID:job.editingNote ? notes.entries.first?.id : nil,initiallyExpandedTags:job.expandedTags,initialScope:job.weekNote ? .week : .day).environmentObject(state))
-                    size = AppState.defaultNoteEditorSize
+                    if let width = job.noteWidth { state.setNoteEditorSize(NSSize(width:width,height:AppState.defaultNoteEditorSize.height)) }
+                    else { state.setNoteEditorSize(AppState.defaultNoteEditorSize) }
+                    content = AnyView(NoteEditor(date:noteDate,initialEditingID:job.editingNote ? notes.entries.first?.id : nil,initiallyExpandedTags:job.expandedTags,initiallyExpandedTools:job.toolsOptions,initialScope:job.weekNote ? .week : .day,initialSearch:job.searchQuery,initiallySearchAllDates:job.searchAllDates,initialCompletion:job.completion,initiallyHoveredDate:job.hoveredDate,initialNotice:initialNotice).environmentObject(state))
+                    size = state.noteEditorSize
                 }
             } else if job.workspace {
                 content = AnyView(WorkspaceView().environmentObject(state))
@@ -140,7 +181,8 @@ import CalendarCore
                 }
             }
             DispatchQueue.main.asyncAfter(deadline:.now()+0.35) {
-                save(hosting,to:directory.appendingPathComponent(job.name+".png"))
+                let popup = job.toolsOptions || job.expandedTags ? NSApp.windows.first(where:{ $0 !== window && $0.isVisible && $0.contentView != nil })?.contentView : nil
+                save(popup ?? hosting,to:directory.appendingPathComponent(job.name+".png"))
                 next(index+1)
             }
         }
@@ -152,5 +194,33 @@ import CalendarCore
         view.cacheDisplay(in:view.bounds,to:bitmap)
         guard let data = bitmap.representation(using:.png,properties:[:]) else { return }
         do { try data.write(to:url); print("Rendered: \(url.path)") } catch { print("Preview write failed: \(error)") }
+    }
+
+    private static func checkDateNavigation() -> Bool {
+        let area = NoteNativeDateNavigation.Area(frame:NSRect(x:0,y:0,width:144,height:28))
+        var nextCount = 0, previousCount = 0, todayCount = 0, openCount = 0
+        func configuration(_ title: String) -> NoteNativeDateNavigation {
+            NoteNativeDateNavigation(title:title,fullTitle:title,titleWidth:50,expanded:true,navigable:true,current:false,
+                unit:"天",currentTitle:"今天",background:.windowBackgroundColor,open:{ openCount += 1 },
+                previous:{ previousCount += 1 },next:{ nextCount += 1 },today:{ todayCount += 1 },hovered:{ _ in })
+        }
+        area.configure(configuration("10月9日"))
+        let buttons = area.subviews.compactMap { $0 as? NSButton }
+        guard buttons.count == 4 else { print("FAIL: native date button count"); return false }
+        for button in buttons {
+            let point = NSPoint(x:button.frame.midX,y:button.frame.midY)
+            guard area.hitTest(point) === button else { print("FAIL: native date button hit testing"); return false }
+        }
+        let nextFrame = buttons[2].frame
+        buttons[2].performClick(nil)
+        area.configure(configuration("10月10日"))
+        guard buttons[2].frame == nextFrame else { print("FAIL: date button moved under pointer"); return false }
+        buttons[2].performClick(nil); buttons[1].performClick(nil); buttons[3].performClick(nil); buttons[0].performClick(nil)
+        area.stop()
+        guard nextCount == 2, previousCount == 1, todayCount == 1, openCount == 1 else {
+            print("FAIL: native date button actions"); return false
+        }
+        print("Passed: native date buttons receive clicks, retain positions and support repeated next/previous/today actions")
+        return true
     }
 }

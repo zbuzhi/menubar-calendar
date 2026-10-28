@@ -10,7 +10,7 @@
 
 [下载最新版](https://github.com/zbuzhi/menubar-calendar/releases/latest) · [查看版本记录](https://github.com/zbuzhi/menubar-calendar/releases) · [反馈问题](https://github.com/zbuzhi/menubar-calendar/issues)
 
-0.2.0 · macOS 13+ · Apple Silicon / Intel · MIT License
+0.2.1 · macOS 13+ · Apple Silicon / Intel · MIT License
 
 </div>
 

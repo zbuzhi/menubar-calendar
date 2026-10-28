@@ -139,10 +139,10 @@ struct NoteIconHover: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduced
     @State private var hovered = false
     func body(content: Content) -> some View {
-        content.background(.primary.opacity(hovered ? 0.065 : 0),in:RoundedRectangle(cornerRadius:6))
-            .scaleEffect(pressed ? 0.94 : hovered ? 1.07 : 1)
-            .animation(reduced ? nil : .spring(response:0.24,dampingFraction:0.78),value:hovered)
-            .animation(reduced ? nil : .easeOut(duration:0.12),value:pressed)
+        content.background(.primary.opacity(pressed ? 0.09 : hovered ? 0.045 : 0),in:RoundedRectangle(cornerRadius:6))
+            .scaleEffect(pressed && !reduced ? 0.98 : 1)
+            .animation(reduced ? nil : .easeOut(duration:0.12),value:hovered)
+            .animation(reduced ? nil : .easeOut(duration:0.08),value:pressed)
             .onHover { hovered = $0 }
     }
 }

@@ -176,6 +176,19 @@ func checkNoteRanges() {
     let custom = NoteDateRange(scope:.custom,anchor:anchor,from:engine.date(2027,2,4),through:anchor,engine:engine)
     XCTAssertEqual(custom.start,"2027-01-03"); XCTAssertEqual(custom.end,"2027-02-04")
     XCTAssertTrue(NoteDateRange(scope:.all,anchor:anchor,from:anchor,through:anchor,engine:engine).contains("2020-01-01"))
+    let nextDay = NoteDateScope.day.shiftedAnchor(engine.date(2028,2,28),by:1,calendar:engine.calendar)!
+    XCTAssertEqual(engine.key(nextDay),"2028-02-29")
+    let nextWeek = NoteDateScope.week.shiftedAnchor(anchor,by:1,calendar:engine.calendar)!
+    let shiftedWeek = NoteDateRange(scope:.week,anchor:nextWeek,from:anchor,through:anchor,engine:engine)
+    XCTAssertEqual(shiftedWeek.start,"2027-01-04"); XCTAssertEqual(shiftedWeek.end,"2027-01-10")
+    let january = engine.date(2028,1,31)
+    let february = NoteDateScope.month.shiftedAnchor(january,by:1,calendar:engine.calendar)!
+    let march = NoteDateScope.month.shiftedAnchor(february,by:1,calendar:engine.calendar)!
+    XCTAssertEqual(engine.key(february),"2028-02-01"); XCTAssertEqual(engine.key(march),"2028-03-01")
+    let previousYear = NoteDateScope.month.shiftedAnchor(january,by:-1,calendar:engine.calendar)!
+    XCTAssertEqual(engine.key(previousYear),"2027-12-01")
+    XCTAssertTrue(NoteDateScope.custom.shiftedAnchor(anchor,by:1,calendar:engine.calendar) == nil)
+    XCTAssertTrue(NoteDateScope.all.shiftedAnchor(anchor,by:1,calendar:engine.calendar) == nil)
     print("Checked: note ranges, inclusive boundaries, Monday weeks across years and leap months")
 }
 
@@ -224,7 +237,9 @@ checks.testHoverSpringIsStableAcrossRefreshRatesAndStalls(); print("Checked: hov
 checks.testIconSizeCannotExceedDateFont(); print("Checked: continuous icon range and invalid values")
 checks.testThemeAccentsRemainReadable(); print("Checked: accent and selection text contrast")
 checkNoteRanges()
+checkNoteQueries()
+checkNoteActions()
 await checkHolidayRepository()
 checkBelowPlacement()
-if failures > 0 { print("FAILED: \(failures) assertions"); exit(1) }; print("All 19 check groups passed.")
+if failures > 0 { print("FAILED: \(failures) assertions"); exit(1) }; print("All 21 check groups passed.")
 } }

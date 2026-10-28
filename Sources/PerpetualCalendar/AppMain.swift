@@ -183,6 +183,7 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
     @objc func editUndo(_ sender: Any?) { editingUndoManager?.undo() }
     @objc func editRedo(_ sender: Any?) { editingUndoManager?.redo() }
     @objc func addNote(_ sender: Any?) { state.onNoteAdd?() }
+    @objc func findNote(_ sender: Any?) { state.onNoteFind?() }
     @objc func saveNote(_ sender: Any?) { state.onNoteSave?() }
 
     func installEditMenu() {
@@ -206,6 +207,8 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
         }
         let save = NSMenuItem(title:"保存小记",action:#selector(saveNote(_:)),keyEquivalent:"s")
         save.target = self; edit.addItem(save)
+        let findNoteItem = NSMenuItem(title:"搜索小记",action:#selector(findNote(_:)),keyEquivalent:"f")
+        findNoteItem.target = self; edit.addItem(findNoteItem)
         let addNoteItem = NSMenuItem(title:"追加小记",action:#selector(addNote(_:)),keyEquivalent:"n")
         addNoteItem.target = self; edit.addItem(addNoteItem)
         root.submenu = edit; menu.addItem(root); NSApp.mainMenu = menu

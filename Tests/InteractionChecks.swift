@@ -9,7 +9,7 @@ struct NoteRowProbe: View {
     let entry: NoteEntry
     var body: some View {
         NoteRow(entry:entry,tags:[],undo:UndoManager(),isEditing:mode.editing,isCollapsed:false,batchMode:false,isSelected:false,allDates:false,
-                edit:{ _ in },startEditing:{},endEditing:{},toggleCollapsed:{},toggleSelected:{},delete:{})
+                edit:{ _ in },startEditing:{},endEditing:{},toggleCollapsed:{},toggleSelected:{},delete:{},reschedule:{ _ in })
             .frame(width:360).fixedSize(horizontal:false,vertical:true)
     }
 }

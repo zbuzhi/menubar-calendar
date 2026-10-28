@@ -11,13 +11,17 @@ struct NoteRow: View {
     let batchMode: Bool
     let isSelected: Bool
     let allDates: Bool
+    var searchText = ""
+    var showTags = false
     let edit: ((inout NoteEntry) -> Void) -> Void
     let startEditing: () -> Void
     let endEditing: () -> Void
     let toggleCollapsed: () -> Void
     let toggleSelected: () -> Void
     let delete: () -> Void
+    let reschedule: (NoteMoveDestination) -> Void
     var collapseAvailability: (Bool) -> Void = { _ in }
+    var continueWriting: () -> Void = {}
     @EnvironmentObject private var state: AppState
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
@@ -28,6 +32,11 @@ struct NoteRow: View {
     @LocalState<Bool> private var tagPicker = false
     @LocalState<CGFloat> private var swipeOffset = 0
     @LocalState<CGFloat> private var readingHeight = 0
+    @State private var requestedCaretOffset: Int?
+    @State private var editAnchor: NoteEditAnchor?
+    @State private var exitAnchor: NoteEditAnchor?
+    @State private var anchorGeneration = UUID()
+    @State private var rowVisible = false
     private var timeLabel: String? { entry.dueMinutes.map { String(format:"%02d:%02d",$0 / 60,$0 % 60) } }
     private var assignedTags: [NoteTag] { tags.filter { entry.tagIDs.contains($0.id) } }
     private var timeBinding: Binding<Date> {
@@ -67,19 +76,31 @@ struct NoteRow: View {
             guard !isEditing, !batchMode, abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
             swipeEnded(value.translation.width)
         })
-        .onChange(of:isEditing) { _ in swipeOffset = 0 }
+        .onChange(of:isEditing) { editing in
+            swipeOffset = 0
+            if !editing {
+                let anchor = exitAnchor, generation = anchorGeneration
+                editAnchor = nil; exitAnchor = nil
+                if let anchor {
+                    DispatchQueue.main.async {
+                        if rowVisible, anchorGeneration == generation { anchor.restore() }
+                    }
+                }
+            }
+        }
         .onHover { hovering = $0 }
-        .onAppear { collapseAvailability(canCollapse) }
+        .onAppear { rowVisible = true; collapseAvailability(canCollapse) }
+        .onDisappear { rowVisible = false; anchorGeneration = UUID(); editAnchor = nil; exitAnchor = nil }
         .onChange(of:canCollapse) { collapseAvailability($0) }
         .popover(isPresented:$timePicker) { timePickerView }
         .popover(isPresented:$tagPicker) { tagPickerView }
     }
     private var firstLineFont: NSFont {
-        guard !isEditing, !isCollapsed, let block = NoteMarkdown.blocks(entry.text).first, block.kind == .heading else { return .systemFont(ofSize:13) }
+        guard !isCollapsed, let block = NoteMarkdown.blocks(entry.text).first, block.kind == .heading else { return .systemFont(ofSize:13) }
         return .systemFont(ofSize:block.level == 1 ? 18 : block.level == 2 ? 16 : 14,weight:.semibold)
     }
     private var firstLineTop: CGFloat {
-        !isEditing && !isCollapsed && NoteMarkdown.blocks(entry.text).first?.kind == .heading ? 3 : 0
+        !isCollapsed && NoteMarkdown.blocks(entry.text).first?.kind == .heading ? 3 : 0
     }
     private var lineHeight: CGFloat { ceil(NSLayoutManager().defaultLineHeight(for:firstLineFont)) }
     private var canCollapse: Bool {
@@ -117,27 +138,23 @@ struct NoteRow: View {
                 HStack(alignment:.top,spacing:6) {
                     Group {
                         if isCollapsed {
-                            Text(NoteMarkdown.inline(NoteMarkdown.blocks(entry.text).first?.text ?? "空白小记"))
-                                .lineLimit(1).font(.system(size:13)).onTapGesture(perform:toggleCollapsed)
+                            NoteInlineText(text:NoteMarkdown.blocks(entry.text).first?.text ?? "空白小记",lineLimit:1,searchText:searchText,activated:{ _,_ in toggleCollapsed() })
                         } else if isEditing {
-                            NoteTextEditor(text:Binding(get:{ entry.text },set:{ text in edit { $0.text = text } }),height:$editorHeight,undo:undo,focus:true,ended:endEditing)
-                                .frame(minHeight:max(readingHeight,lineHeight))
+                            NoteTextEditor(text:Binding(get:{ entry.text },set:{ text in edit { $0.text = text } }),height:$editorHeight,undo:undo,focus:true,ended:endEditing,initialCaretOffset:requestedCaretOffset,activation:editAnchor,caretChanged:{ requestedCaretOffset = $0 },continueWriting:continueWriting,editEnded:{ exitAnchor = $0 })
+                                .frame(minHeight:max(readingHeight - firstLineTop,lineHeight)).padding(.top,firstLineTop)
                         } else if entry.text.isEmpty {
                             Text("写点什么…").font(.system(size:13)).foregroundStyle(.tertiary)
                                 .frame(maxWidth:.infinity,alignment:.leading).onTapGesture(perform:startEditing)
                         } else {
-                            NoteMarkdownView(text:entry.text).contentShape(Rectangle()).onTapGesture(perform:startEditing)
+                            NoteMarkdownView(text:entry.text,searchText:searchText,activated:{ offset,anchor in
+                                anchorGeneration = UUID(); requestedCaretOffset = offset; editAnchor = anchor; startEditing()
+                            })
                                 .background(GeometryReader { proxy in
                                     Color.clear.onAppear { readingHeight = proxy.size.height }
                                         .onChange(of:proxy.size.height) { readingHeight = $0 }
                                 })
                         }
                     }.frame(maxWidth:.infinity,alignment:.leading).opacity(entry.isCompleted ? 0.55 : 1)
-                        .overlay {
-                            NoteRefraction(active:hovering && !isEditing && !reducedMotion && state.preferences.motion != "off",
-                                           revision:entry.text + String(isCollapsed) + String(entry.isCompleted) + state.preferences.accent + String(describing:scheme))
-                                .allowsHitTesting(false).accessibilityHidden(true)
-                        }
                     if !state.noteSimpleDisplay, !entry.isCompleted, let timeLabel {
                         Button { timePicker = true } label: {
                             TimelineView(.periodic(from:.now,by:30)) { context in
@@ -152,8 +169,21 @@ struct NoteRow: View {
                                     tagTitle:assignedTags.isEmpty ? "未归类" : assignedTags.map(\.name).joined(separator:"、"),
                                     categories:tags,selectedTagIDs:entry.tagIDs,chooseTag:{ id in edit { $0.tagIDs = id.map { [$0] } ?? [] } },
                                     highlighted:hovering || isEditing,lineCenter:firstLineTop + lineHeight / 2,collapsed:isCollapsed,canCollapse:canCollapse,
-                                    edit:startEditing,collapse:toggleCollapsed,time:{ timePicker = true },tags:{ tagPicker = true },remove:delete)
+                                    edit:startEditing,collapse:toggleCollapsed,time:{ timePicker = true },tags:{ tagPicker = true },remove:delete,reschedule:reschedule)
                         .frame(width:20,height:lineHeight + firstLineTop)
+                }
+                if showTags, !assignedTags.isEmpty {
+                    ViewThatFits(in:.horizontal) {
+                        HStack(spacing:8) {
+                            ForEach(assignedTags) { tag in
+                                HStack(spacing:4) {
+                                    Circle().fill(NoteColors.color(tag.color)).frame(width:4,height:4)
+                                    Text(tag.name).lineLimit(1)
+                                }
+                            }
+                        }
+                        Text(assignedTags.map(\.name).joined(separator:" · ")).lineLimit(1)
+                    }.font(.system(size:10)).foregroundStyle(.secondary).padding(.top,2)
                 }
                 if allDates {
                     Text(entry.date).font(.system(size:10)).foregroundStyle(.tertiary).frame(height:14)
@@ -164,7 +194,10 @@ struct NoteRow: View {
         .overlay(alignment:.bottomTrailing) {
             if canCollapse && !isEditing { foldButton.padding(.trailing,9).padding(.bottom,8 + max(0,(lastLineHeight - 10) / 2)) }
         }
-        .background { if swipeOffset != 0 { SettingsPalette(state.colorScheme ?? scheme).backing } }
+        .background {
+            if swipeOffset != 0 { SettingsPalette(state.colorScheme ?? scheme).backing }
+            else { RoundedRectangle(cornerRadius:7).fill(.primary.opacity(hovering && !isEditing ? 0.02 : 0)) }
+        }
     }
     private var tagPickerView: some View {
         VStack(alignment:.leading,spacing:10) {
@@ -212,8 +245,13 @@ struct NoteRow: View {
         Button(isCollapsed ? "展开正文" : "折叠正文",action:toggleCollapsed)
         Button("预计完成时间…") { timePicker = true }
         Button("更换标签…") { tagPicker = true }
+        Menu("移到日期") {
+            Button("今天") { reschedule(.today) }
+            Button("明天") { reschedule(.tomorrow) }
+            Button("选择日期…") { reschedule(.custom) }
+        }
         Divider()
-        Button("删除小记…",role:.destructive,action:delete)
+        Button("删除小记",role:.destructive,action:delete)
     }
     private func swipeChanged(_ distance: CGFloat) { swipeOffset = max(-NoteSwipe.revealDistance,min(0,distance)) }
     private func swipeEnded(_ distance: CGFloat) {

@@ -54,7 +54,6 @@ struct NoteRangePicker: View {
         })
     }
     private func shift(_ delta: Int) {
-        let component: Calendar.Component = scope == .month ? .month : scope == .week ? .weekOfYear : .day
-        anchor = state.engine.calendar.date(byAdding:component,value:delta,to:anchor) ?? anchor
+        anchor = scope.shiftedAnchor(anchor,by:delta,calendar:state.engine.calendar) ?? anchor
     }
 }

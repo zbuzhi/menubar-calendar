@@ -42,6 +42,7 @@ import ServiceManagement
     var onNoteResetSize: (() -> Void)?
     var onNoteClose: (() -> Void)?
     var onNoteAdd: (() -> Void)?
+    var onNoteFind: (() -> Void)?
     var onNoteSave: (() -> Void)?
     weak var noteUndoManager: UndoManager?
     var onSettings: (() -> Void)?

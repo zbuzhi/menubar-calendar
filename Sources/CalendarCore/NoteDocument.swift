@@ -107,6 +107,42 @@ public struct NoteDocument: Codable, Equatable {
     public func entries(date: String? = nil, tagID: UUID? = nil) -> [NoteEntry] {
         entries.filter { (date == nil || $0.date == date) && (tagID == nil || $0.tagIDs.contains(tagID!)) }
     }
+    public func continuation(after id: UUID,now: Date = Date()) -> NoteEntry? {
+        guard let source = entries.first(where:{ $0.id == id }),
+              !source.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else { return nil }
+        return NoteEntry(date:source.date,tagIDs:source.tagIDs,now:now)
+    }
+    @discardableResult public mutating func reschedule(_ ids: Set<UUID>,to date: Date,engine: CalendarEngine = CalendarEngine(),now: Date = Date()) -> Int {
+        let key = engine.key(date)
+        var count = 0
+        for i in entries.indices where ids.contains(entries[i].id) && entries[i].date != key {
+            entries[i].date = key; entries[i].updatedAt = now; count += 1
+        }
+        return count
+    }
+}
+
+/// A selective deletion receipt: restoring it preserves edits made to other notes afterward.
+public struct NoteDeletion {
+    private let records: [(index: Int,entry: NoteEntry)]
+    public var count: Int { records.count }
+    public init(document: NoteDocument,ids: Set<UUID>) {
+        records = document.entries.enumerated().compactMap { ids.contains($0.element.id) ? ($0.offset,$0.element) : nil }
+    }
+    public func missingCount(in document: NoteDocument) -> Int {
+        let existing = Set(document.entries.map(\.id))
+        return records.filter { !existing.contains($0.entry.id) }.count
+    }
+    public func restore(into document: inout NoteDocument) {
+        var existing = Set(document.entries.map(\.id))
+        let tags = Set(document.tags.map(\.id))
+        for record in records where !existing.contains(record.entry.id) {
+            var entry = record.entry
+            entry.tagIDs.removeAll { !tags.contains($0) }
+            document.entries.insert(entry,at:min(record.index,document.entries.count))
+            existing.insert(entry.id)
+        }
+    }
 }
 
 public enum NoteSwipe {
