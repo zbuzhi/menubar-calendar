@@ -33,6 +33,21 @@ public struct HolidayManifest: Codable {
     public let updatedAt: String
     public let years: [String:Entry]
 }
+public struct HolidayRefreshResult {
+    public let records: [HolidayYearRecord]
+    public let checkedIndex: Bool
+    public var summary: String {
+        guard checkedIndex else { return "暂时无法检查节假日数据 · 保留本地数据" }
+        guard let first = records.first, let last = records.last else { return "仓库暂未发布节假日数据" }
+        let range = first.year == last.year ? "\(first.year)年" : "\(first.year)—\(last.year)年"
+        let failed = records.filter { !$0.complete || $0.failures > 0 || $0.outcome.contains("缓存写入失败") }
+        if !failed.isEmpty {
+            return "已检查全部 \(records.count) 个年份（\(range)） · \(failed.map { String($0.year) }.joined(separator:"、"))年更新失败，保留本地数据"
+        }
+        let updated = records.filter { $0.outcome == "已更新" }.count
+        return updated == 0 ? "全部已发布年份均为最新（\(range)）" : "已更新全部已发布年份（\(range)） · 本次更新 \(updated) 个年份"
+    }
+}
 private struct HolidayIndexCache: Codable {
     var manifest: HolidayManifest?
     var checkedAt: Date = .distantPast
@@ -55,6 +70,7 @@ public actor HolidayRepository {
     private var inFlight: [Int:Task<HolidayYearRecord,Never>] = [:]
     private var indexCache: HolidayIndexCache?
     private var indexTask: Task<HolidayIndexCache,Error>?
+    private var refreshTask: Task<HolidayRefreshResult,Never>?
 
     public init(directory: URL? = nil, transport: Transport? = nil) {
         self.directory = directory ?? FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0]
@@ -95,21 +111,60 @@ public actor HolidayRepository {
         return Array(records.values)
     }
     public func load(year: Int, now: Date = Date(), force: Bool = false) async -> HolidayYearRecord {
-        if let pending = inFlight[year] { return await pending.value }
+        await load(year:year,now:now,force:force,publishedIndex:nil)
+    }
+    /// Manual refresh covers the entire published index, independently of the visible year.
+    public func refreshAll(now: Date = Date()) async -> HolidayRefreshResult {
+        if let refreshTask { return await refreshTask.value }
+        let task = Task {
+            do {
+                let index = try await self.loadIndex(now:now,force:true)
+                let years = (index.manifest?.years.keys.compactMap { Int($0) } ?? []).sorted()
+                var refreshed: [HolidayYearRecord] = []
+                for year in years {
+                    refreshed.append(await self.load(year:year,now:now,force:true,publishedIndex:index))
+                }
+                return HolidayRefreshResult(records:refreshed,checkedIndex:true)
+            } catch {
+                return HolidayRefreshResult(records:self.cachedRecords(),checkedIndex:false)
+            }
+        }
+        refreshTask = task
+        let result = await task.value
+        refreshTask = nil
+        return result
+    }
+    private func load(year: Int, now: Date, force: Bool, publishedIndex: HolidayIndexCache?) async -> HolidayYearRecord {
+        if let pending = inFlight[year] {
+            let record = await pending.value
+            if publishedIndex == nil { return record }
+            // A manual pass rechecks the completed request against its index snapshot.
+        }
         var old = read(year)
         let currentYear = CalendarEngine().calendar.component(.year,from:now)
-        guard year >= 2007 && year <= currentYear + 1 else {
+        guard year >= 2007 && (year <= currentYear + 1 || publishedIndex?.manifest?.years[String(year)] != nil) else {
             old.outcome = "尚未到发布年份或超出数据范围"; return old
         }
-        if now < old.nextCheck && (!force || now.timeIntervalSince(old.checkedAt) < 60) { return old }
-        let task = Task { await self.fetch(old:old,now:now,force:force) }
+        if publishedIndex != nil && old.failures > 0 && now.timeIntervalSince(old.checkedAt) < 60 { return old }
+        // Another year may have refreshed the shared index since this record was
+        // checked. Do not keep an unpublished/older year behind its old cooldown
+        // when that newer index already advertises downloadable data.
+        let index = readIndex()
+        let hasNewerData = index.failures == 0 && index.checkedAt > old.checkedAt &&
+            index.manifest?.years[String(year)].map {
+                !old.complete || old.version != $0.version || old.checksum != $0.sha256
+            } == true
+        if publishedIndex == nil && now < old.nextCheck && (!force || now.timeIntervalSince(old.checkedAt) < 60) && !hasNewerData { return old }
+        let task = Task {
+            var record = await self.fetch(old:old,now:now,force:force,publishedIndex:publishedIndex)
+            self.records[year] = record
+            do { try self.save(record,name:"\(year).json") }
+            catch { record.outcome += "（缓存写入失败）"; self.records[year] = record }
+            self.inFlight[year] = nil
+            return record
+        }
         inFlight[year] = task
-        var record = await task.value
-        records[year] = record
-        do { try save(record,name:"\(year).json") }
-        catch { record.outcome += "（缓存写入失败）"; records[year] = record }
-        inFlight[year] = nil
-        return record
+        return await task.value
     }
     private func readIndex() -> HolidayIndexCache {
         if let indexCache { return indexCache }
@@ -164,12 +219,14 @@ public actor HolidayRepository {
             throw error
         }
     }
-    private func fetch(old: HolidayYearRecord, now: Date, force: Bool) async -> HolidayYearRecord {
+    private func fetch(old: HolidayYearRecord, now: Date, force: Bool, publishedIndex: HolidayIndexCache?) async -> HolidayYearRecord {
         var result = old
         result.checkedAt = now
         result.sourceID = Self.sourceURL.absoluteString
         do {
-            let cache = try await loadIndex(now:now,force:force)
+            let cache: HolidayIndexCache
+            if let publishedIndex { cache = publishedIndex }
+            else { cache = try await loadIndex(now:now,force:force) }
             guard let entry = cache.manifest?.years[String(old.year)] else {
                 result.outcome = "仓库尚未发布该年安排"; result.failures = 0
                 result.nextCheck = cache.nextCheck

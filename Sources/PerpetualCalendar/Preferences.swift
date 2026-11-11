@@ -10,6 +10,7 @@ struct Preferences: Codable {
     var boldText: Bool? = false
     var glassStyle: String? = "clear"
     var glassTint: Double? = 0
+    var notesFollowCalendarDate: Bool? = false
     var theme = "system"
     var material = "glass"
     var backing = 0.12
@@ -19,15 +20,15 @@ struct Preferences: Codable {
     var lunar = true
     var festivals = true
     var holidays = true
-    var zodiac = "icon"
-    var termIcons = true
+    var zodiac = "hidden"
+    var termIcons = false
     var zodiacLeft = true
     var iconSize = 6.0
     var mondayFirst = true
     var isoWeek = true
     var showYear = true
     var showGanZhi = false
-    var showDayProgress = true
+    var showDayProgress = false
     var showWeek = true
     var showCapsule = true
     var lunarProgress = false

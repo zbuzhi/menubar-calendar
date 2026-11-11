@@ -171,6 +171,11 @@ struct SettingsView: View {
                     }.padding(.top,10)
                 }.font(.system(size:11)).animation(motion,value:moreDetails)
             }
+            section("小记") {
+                Toggle("随日历日期切换",isOn:Binding(get:{state.notesFollowCalendarDate},set:{state.preferences.notesFollowCalendarDate = $0}))
+                Text("开启后，已打开的小记会随日历选中的日期切换，正在编辑的内容会自动保存。")
+                    .font(.system(size:10)).foregroundStyle(palette.secondary).fixedSize(horizontal:false,vertical:true)
+            }
             DisclosureGroup("历法与周数规则",isExpanded:$moreRules) {
                 VStack(alignment:.leading,spacing:10) {
                     JellySegments("周数规则",selection:$state.preferences.isoWeek,options:[("ISO 周数",true),("元旦为首周",false)])
@@ -226,7 +231,7 @@ struct SettingsView: View {
             }
             section("节假日数据更新") {
                 Text(state.holidayStatus).font(.system(size:11)).foregroundStyle(palette.secondary)
-                Text("每 7 天检查索引，仅下载有变化的年度数据。不会改变软件版本。")
+                Text("自动每 7 天检查索引；手动更新会检查全部已发布年份，下载新增或有变化的数据。")
                     .font(.system(size:11)).foregroundStyle(palette.secondary).fixedSize(horizontal:false,vertical:true)
                 if state.holidayUpdating { ProgressView().controlSize(.small) }
                 Button(state.holidayUpdating ? "检查中…" : "更新假期数据") { state.refreshHolidays(force:true) }.disabled(state.holidayUpdating)

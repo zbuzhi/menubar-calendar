@@ -8,20 +8,28 @@ actor HolidayStub {
     var status = 200
     var conditional = false
     var retryAfter: String?
+    var annualFiles: [Int:Data] = [:]
+    var yearFailures: [Int:Int] = [:]
     init(manifest: Data, annual: Data) { self.manifest = manifest; self.annual = annual }
     func fail(_ code: Int = 503, retry: String? = nil) { status = code; retryAfter = retry }
     func recover() { status = 200 }
     func update(manifest: Data, annual: Data) { self.manifest = manifest; self.annual = annual }
     func useConditional() { conditional = true }
+    func disableConditional() { conditional = false }
+    func setAnnual(_ data: Data, year: Int) { annualFiles[year] = data }
+    func failYear(_ year: Int, code: Int) { yearFailures[year] = code }
     func response(_ request: URLRequest) async throws -> (Data,HTTPURLResponse) {
         calls.append(request)
         try await Task.sleep(nanoseconds:20_000_000)
         let index = request.url!.lastPathComponent == "index.json"
         var code = status
+        let year = Int(request.url!.deletingPathExtension().lastPathComponent)
+        if !index, let year, let failure = yearFailures[year], status == 200 { code = failure }
         if conditional && index && request.value(forHTTPHeaderField:"If-None-Match") != nil && status == 200 { code = 304 }
         var headers = ["ETag":"test-index-v1"]
         if let retryAfter { headers["Retry-After"] = retryAfter }
-        return (index ? manifest : annual,HTTPURLResponse(url:request.url!,statusCode:code,httpVersion:nil,headerFields:headers)!)
+        let body = index ? manifest : (year.flatMap { annualFiles[$0] } ?? annual)
+        return (body,HTTPURLResponse(url:request.url!,statusCode:code,httpVersion:nil,headerFields:headers)!)
     }
 }
 
@@ -136,7 +144,97 @@ func checkHolidayRepository() async {
     XCTAssertEqual(migrated.provider,HolidayRepository.provider)
     XCTAssertEqual(migrated.version,"2026.1")
     XCTAssertEqual(await migrateStub.calls.count,2)
+
+    // A refresh for 2026 discovers 2027 while its old "unpublished" result is
+    // still cached. Opening 2027 must use the new index without waiting a week.
+    let publicationRoot = root.appendingPathComponent("new-publication")
+    let publicationStub = HolidayStub(manifest:fixture.index,annual:fixture.annual)
+    let publication = HolidayRepository(directory:publicationRoot,transport:{ try await publicationStub.response($0) })
+    _ = await publication.load(year:2026,now:now)
+    let unpublished = await publication.load(year:2027,now:now)
+    XCTAssertTrue(!unpublished.complete)
+    let nextAnnual = Data(String(decoding:fixture.annual,as:UTF8.self).replacingOccurrences(of:"2026",with:"2027").utf8)
+    var nextManifest = try! JSONSerialization.jsonObject(with:fixture.index) as! [String:Any]
+    var nextYears = nextManifest["years"] as! [String:[String:Any]]
+    nextYears["2027"] = ["version":"2027.1","path":"years/2027.json","sha256":HolidayRepository.sha256(nextAnnual)]
+    nextManifest["years"] = nextYears
+    await publicationStub.update(manifest:try! JSONSerialization.data(withJSONObject:nextManifest),annual:nextAnnual)
+    _ = await publication.load(year:2026,now:now.addingTimeInterval(120),force:true)
+    XCTAssertEqual(await publicationStub.calls.count,3) // refreshed shared index only
+    let publicationReopened = HolidayRepository(directory:publicationRoot,transport:{ try await publicationStub.response($0) })
+    let published = await publicationReopened.load(year:2027,now:now.addingTimeInterval(121))
+    XCTAssertTrue(published.complete)
+    XCTAssertEqual(published.version,"2027.1")
+    XCTAssertEqual(await publicationStub.calls.count,4) // annual file, no extra index request
+    _ = await publicationReopened.load(year:2027,now:now.addingTimeInterval(122))
+    XCTAssertEqual(await publicationStub.calls.count,4)
+    await checkHolidayRefreshAll()
     print("Checked: shared GitHub index, durable cache, ETag 304, version upgrades, integrity, retries and unpublished years")
+}
+
+func checkHolidayRefreshAll() async {
+    let now = CalendarEngine().date(2026,11,11)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("calendar-refresh-all-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at:root) }
+    func annual(_ year: Int, revision: Int = 1) -> Data {
+        Data(String(decoding:holidayFixture(version:"2026.\(revision)").annual,as:UTF8.self)
+            .replacingOccurrences(of:"2026",with:String(year)).utf8)
+    }
+    func manifest(_ files: [Int:Data]) -> Data {
+        let years = Dictionary(uniqueKeysWithValues:files.map { year,data in
+            let dataset = try! JSONSerialization.jsonObject(with:data) as! [String:Any]
+            return (String(year),["version":dataset["version"]!,"path":"years/\(year).json","sha256":HolidayRepository.sha256(data)])
+        })
+        return try! JSONSerialization.data(withJSONObject:["schemaVersion":1,"region":"CN","timeZone":"Asia/Shanghai","updatedAt":"2026-11-11","years":years])
+    }
+    let oldFiles = [2025:annual(2025),2026:annual(2026)]
+    let stub = HolidayStub(manifest:manifest(oldFiles),annual:oldFiles[2026]!)
+    for (year,data) in oldFiles { await stub.setAnnual(data,year:year) }
+    let repository = HolidayRepository(directory:root,transport:{ try await stub.response($0) })
+    _ = await repository.load(year:2025,now:now)
+    _ = await repository.load(year:2026,now:now)
+    _ = await repository.load(year:2027,now:now) // negative cache for the newly announced year
+    XCTAssertEqual(await stub.calls.count,3)
+    let newFiles = [2024:annual(2024),2025:annual(2025,revision:2),2026:oldFiles[2026]!,2027:annual(2027)]
+    await stub.update(manifest:manifest(newFiles),annual:newFiles[2026]!)
+    for (year,data) in newFiles { await stub.setAnnual(data,year:year) }
+    async let first = repository.refreshAll(now:now.addingTimeInterval(120))
+    async let duplicate = repository.refreshAll(now:now.addingTimeInterval(120))
+    let (result,joined) = await (first,duplicate)
+    XCTAssertTrue(result.checkedIndex && joined.checkedIndex)
+    XCTAssertEqual(result.records.map(\.year),[2024,2025,2026,2027])
+    XCTAssertEqual(result.records.map(\.version),["2024.1","2025.2","2026.1","2027.1"])
+    XCTAssertTrue(result.records.allSatisfy { $0.complete && $0.failures == 0 })
+    XCTAssertTrue(result.summary.contains("2024—2027") && result.summary.contains("更新 3 个年份"))
+    XCTAssertEqual(await stub.calls.count,7) // one index + uncached history + revised history + newly published year
+    let noChange = await repository.refreshAll(now:now.addingTimeInterval(121))
+    XCTAssertTrue(noChange.summary.contains("全部已发布年份均为最新"))
+    XCTAssertEqual(await stub.calls.count,7) // repeat clicks reuse index and unchanged files
+    let reopened = HolidayRepository(directory:root,transport:{ try await stub.response($0) })
+    await stub.useConditional()
+    let unchanged = await reopened.refreshAll(now:now.addingTimeInterval(240))
+    XCTAssertTrue(unchanged.records.allSatisfy { $0.complete })
+    XCTAssertEqual(await stub.calls.count,8) // persisted index 304, no annual downloads
+    let revisedFiles = [2024:newFiles[2024]!,2025:annual(2025,revision:3),2026:oldFiles[2026]!,2027:annual(2027,revision:2)]
+    await stub.update(manifest:manifest(revisedFiles),annual:revisedFiles[2026]!)
+    await stub.disableConditional()
+    for (year,data) in revisedFiles { await stub.setAnnual(data,year:year) }
+    await stub.failYear(2025,code:503)
+    let partial = await reopened.refreshAll(now:now.addingTimeInterval(360))
+    XCTAssertTrue(partial.checkedIndex)
+    XCTAssertEqual(partial.records.map(\.version),["2024.1","2025.2","2026.1","2027.2"])
+    XCTAssertEqual(partial.records.first(where: { $0.year == 2025 })?.entries, result.records.first(where: { $0.year == 2025 })?.entries)
+    XCTAssertTrue(partial.summary.contains("2025年更新失败"))
+    XCTAssertEqual(await stub.calls.count,11) // failure does not stop the remaining years
+    let retry = await reopened.refreshAll(now:now.addingTimeInterval(361))
+    XCTAssertTrue(retry.summary.contains("2025年更新失败"))
+    XCTAssertEqual(await stub.calls.count,11) // manual error retries still have a one-minute minimum
+    await stub.fail()
+    let offline = await reopened.refreshAll(now:now.addingTimeInterval(480))
+    XCTAssertTrue(!offline.checkedIndex)
+    XCTAssertTrue(offline.summary.contains("暂时无法检查"))
+    XCTAssertEqual(offline.records.count,4)
+    XCTAssertEqual(await stub.calls.count,12) // failed index never fans out to annual requests
 }
 
 func checkBelowPlacement() {

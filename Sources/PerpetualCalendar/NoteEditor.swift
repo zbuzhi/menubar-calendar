@@ -287,6 +287,8 @@ struct NoteEditor: View {
         // Navigation actions finish editing before changing the range. Initialization must
         // preserve initialEditingID when opening a note on a different day.
         .onChange(of:dateRange) { _ in selection = []; preferredInsertionDate = nil; clearCompletionFeedback() }
+        .onChange(of:state.engine.key(state.selected)) { _ in followCalendarDate() }
+        .onChange(of:state.notesFollowCalendarDate) { _ in followCalendarDate() }
         .onChange(of:tagID) { _ in finishEditing(); selection = []; clearCompletionFeedback() }
         .onChange(of:searchText) { _ in clearCompletionFeedback() }
         .onChange(of:searchAllDates) { _ in preferredInsertionDate = nil; clearCompletionFeedback() }
@@ -409,6 +411,12 @@ struct NoteEditor: View {
     private func shiftDate(_ delta: Int) {
         guard let next = dateScope.shiftedAnchor(rangeAnchor,by:delta,calendar:state.engine.calendar) else { return }
         finishEditing(); selection = []; searchAllDates = false; rangeAnchor = next
+    }
+    private func followCalendarDate() {
+        guard loaded, activeView, state.notesFollowCalendarDate else { return }
+        finishEditing(); closeTransientPopovers(); selection = []; searchAllDates = false
+        dateScope = .day; rangeAnchor = state.selected; rangeStart = state.selected; rangeEnd = state.selected
+        preferredInsertionDate = nil
     }
     private func returnToCurrentPeriod() {
         guard supportsDateNavigation else { return }

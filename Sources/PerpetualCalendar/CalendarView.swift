@@ -8,13 +8,20 @@ struct CalendarView: View {
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @LocalState<Bool> private var showJump = false
     @LocalState<Date> private var jump = Date()
-    @LocalState<Bool> private var moonInfo = false
     var body: some View {
         VStack(spacing:0) {
             header.padding(.horizontal,18).padding(.top,16).padding(.bottom,10)
             ScrollView {
                 VStack(spacing:12) {
-                    if state.annual { annual } else { monthGrid; details }
+                    if state.annual { annual } else {
+                        CalendarMonthPager(month:state.month,calendar:state.engine.calendar,reduced:reduceMotion,navigate:{ [displayedMonth = state.month] step in
+                            guard !state.annual, state.engine.calendar.isDate(state.month,equalTo:displayedMonth,toGranularity:.month) else { return }
+                            state.shift(step)
+                        }) {
+                            CalendarMonthGrid(month:$0)
+                        }
+                        CalendarDateDetails()
+                    }
                     if state.comparison { comparison }
                 }.padding(.horizontal,16).padding(.bottom,12)
             }.scrollIndicators(.hidden)
@@ -52,173 +59,6 @@ struct CalendarView: View {
             Button { state.shift(1) } label: { Image(systemName:"chevron.right") }.help("下个月 / 年")
             Button { state.annual.toggle() } label: { Image(systemName:state.annual ? "calendar" : "square.grid.3x3") }.help(state.annual ? "返回月历" : "年度缩略图")
         }.buttonStyle(.borderless)
-    }
-    private var monthGrid: some View {
-        let dates = state.engine.monthDays(state.month,mondayFirst:state.preferences.mondayFirst)
-        let weekdays = state.preferences.mondayFirst ? ["一","二","三","四","五","六","日"] : ["日","一","二","三","四","五","六"]
-        return VStack(spacing:4) {
-            HStack(spacing:0) {
-                ForEach(weekdays,id:\.self) { day in Text(day).font(.system(size:11,weight:.medium)).foregroundStyle(day == "六" || day == "日" ? Color.red.opacity(0.8) : .secondary).frame(maxWidth:.infinity) }
-            }.padding(.bottom,4)
-            ForEach(0..<(dates.count / 7),id:\.self) { row in
-                let week = Array(dates[(row*7)..<(row*7+7)])
-                let hasIcons = state.preferences.zodiac != "hidden" || (state.preferences.termIcons && week.contains { SolarTerms.on($0,engine:state.engine) != nil })
-                HStack(spacing:2) { ForEach(week,id:\.self) { date in dayCell(date,icons:hasIcons) } }
-            }
-        }
-        .coordinateSpace(name:"month-grid")
-        .backgroundPreferenceValue(DayCellFrames.self) { frames in
-            JellyHoverLayer(frames:Array(frames.values),color:NSColor(state.accent),mode:reduceMotion ? "off" : state.preferences.motion)
-                .accessibilityHidden(true)
-        }
-    }
-    private func dayCell(_ date: Date, icons: Bool) -> some View {
-        let e = state.engine, p = state.preferences
-        let key = e.key(date), selected = e.calendar.isDate(date,inSameDayAs:state.selected)
-        let currentMonth = e.calendar.isDate(date,equalTo:state.month,toGranularity:.month)
-        let term = SolarTerms.on(date,engine:e)
-        let lunar = e.lunar(date), zodiac = e.zodiac(date)
-        let festival = p.festivals ? e.festival(date) : nil
-        let holiday = p.holidays ? state.holidays.status(date,engine:e) : nil
-        let today = e.calendar.isDateInToday(date)
-        return Button { state.select(date) } label: {
-            VStack(spacing:3) {
-                Text(String(e.calendar.component(.day,from:date)))
-                    .font(.system(size:CalendarMetrics.dateFontSize,weight:state.textWeight(selected || today ? .semibold : .medium)))
-                    .foregroundStyle(selected ? .white : e.calendar.isDateInWeekend(date) ? Color.red.opacity(0.85) : .primary)
-                if p.lunar || festival != nil || term != nil {
-                    Text(festival ?? term?.name ?? (p.lunar ? lunar.short : ""))
-                        .font(.system(size:9)).lineLimit(1).minimumScaleFactor(0.7)
-                        .foregroundStyle(selected ? .white.opacity(0.9) : festival != nil || term != nil ? state.accent : .secondary)
-                }
-                if icons {
-                    HStack(spacing:7) {
-                        if p.zodiacLeft { zodiacItem(zodiac,selected:selected); termItem(term,selected:selected) }
-                        else { termItem(term,selected:selected); zodiacItem(zodiac,selected:selected) }
-                    }.frame(height:max(9,state.effectiveIconSize))
-                }
-            }
-            .frame(maxWidth:.infinity).frame(height:state.preferences.compact ? (icons ? 58 : p.lunar ? 43 : 32) : (icons ? 70 : 54))
-            .background { if selected { RoundedRectangle(cornerRadius:10).fill(state.selectionColor.gradient) } }
-            .overlay { if today && !selected { RoundedRectangle(cornerRadius:10).strokeBorder(state.accent.opacity(0.6),lineWidth:1) } }
-            .overlay(alignment:.topTrailing) {
-                if let holiday {
-                    Text(holiday.status.rawValue).font(.system(size:7,weight:.semibold))
-                        .foregroundStyle(selected ? .white : holiday.status == .rest ? Color.red : .orange).padding(2)
-                }
-            }
-            .overlay(alignment:.bottomTrailing) {
-                if state.hasNotes(on:key) { Circle().fill(selected ? .white : state.accent).frame(width:3,height:3).padding(4) }
-            }
-            .opacity(currentMonth ? 1 : 0.35)
-            .contentShape(RoundedRectangle(cornerRadius:10))
-        }.buttonStyle(.plain)
-        .background(GeometryReader { geometry in
-            Color.clear.preference(key:DayCellFrames.self,value:[key:geometry.frame(in:.named("month-grid"))])
-        })
-        .help("\(e.format(date,"yyyy年M月d日 EEEE"))\n农历\(lunar.monthName)\(lunar.dayName) · \(zodiac.name)\(term.map { " · \($0.name)" } ?? "")")
-        .accessibilityLabel("\(e.format(date,"M月d日"))，农历\(lunar.monthName)\(lunar.dayName)，\(zodiac.name)")
-        .contextMenu {
-            Button("复制该日期 · \(e.key(date))") { state.copy("{yyyy}-{MM}-{dd}",date:date) }
-            Button("复制该日期 · 农历") { state.copy("{ganzhi}年{lunar}",date:date) }
-            Button("与另一日期比较") { state.select(date); state.comparisonDate = Date(); state.comparison = true }
-            Button("添加 / 编辑当天小记") { state.select(date); state.preferences.showNotes = true; state.noteEditorDate = date }
-        }
-    }
-    @ViewBuilder private func zodiacItem(_ zodiac: Zodiac, selected: Bool) -> some View {
-        if state.preferences.zodiac == "icon" {
-            ZodiacIcon(index:zodiac.index).frame(width:state.effectiveIconSize,height:state.effectiveIconSize)
-                .animation(reduceMotion ? nil : .interactiveSpring(response:0.18,dampingFraction:0.88),value:state.effectiveIconSize)
-                .foregroundStyle(selected ? .white.opacity(0.85) : .secondary)
-        } else if state.preferences.zodiac == "text" {
-            Text(zodiac.name).font(.system(size:7)).foregroundStyle(selected ? .white.opacity(0.85) : .secondary)
-        }
-    }
-    @ViewBuilder private func termItem(_ term: SolarTerm?, selected: Bool) -> some View {
-        if state.preferences.termIcons, let term {
-            Image(systemName:termSymbol(term.index)).font(.system(size:state.effectiveIconSize - 1)).foregroundStyle(selected ? .white : state.accent.opacity(0.8))
-                .animation(reduceMotion ? nil : .interactiveSpring(response:0.18,dampingFraction:0.88),value:state.effectiveIconSize)
-        }
-    }
-    private func termSymbol(_ i: Int) -> String { ["snowflake","snowflake","leaf","cloud.rain","bolt","leaf","leaf","cloud.rain","sun.max","leaf","leaf","sun.max","sun.max","sun.max","leaf","sun.haze","drop","leaf","drop","leaf","snowflake","cloud.snow","cloud.snow","moon.stars"][i] }
-    private var details: some View {
-        let e = state.engine, date = state.selected, p = state.preferences
-        let lunar = e.lunar(date), z = e.zodiac(date)
-        let terms = SolarTerms.surrounding(date,engine:e)
-        let week = e.week(date,iso:p.isoWeek)
-        return VStack(alignment:.leading,spacing:9) {
-            Divider()
-            HStack(alignment:.top) {
-                VStack(alignment:.leading,spacing:5) {
-                    Text(e.format(date,"M月d日  EEEE")).font(.system(size:18,weight:.semibold))
-                    HStack(spacing:7) {
-                        if p.lunar { Text("农历"+lunar.monthName+lunar.dayName).font(.system(size:13)) }
-                        if p.showYear { Text(lunar.yearName+"年 · "+lunar.animal+"年").font(.system(size:10)).padding(.horizontal,7).padding(.vertical,3).background(.orange.opacity(0.11),in:Capsule()) }
-                    }
-                }
-                Spacer(minLength:2)
-                if p.showMoon { moonButton(date) }
-            }
-            if p.showGanZhi { Text(e.stemMonth(date)+" · "+e.stemDay(date)).font(.caption).foregroundStyle(.secondary).help("干支月以节气交节时刻换月，日干支按北京时间零点换日") }
-            if p.showDayProgress {
-                HStack { Text(terms.current.name+"第\(e.days(from:terms.current.date,to:date)+1)天"); Spacer(); Text(z.name+"第\(z.day)天") }.font(.system(size:11)).foregroundStyle(state.accent)
-                Text("距\(terms.next.name)还有 \(e.days(from:date,to:terms.next.date)) 天 · 约\(e.format(terms.next.date,"M月d日 HH:mm"))交节")
-                    .font(.system(size:10)).foregroundStyle(.secondary).help("节气时刻使用低阶天文模型估算，可能存在分钟级误差")
-            }
-            if p.showWeek {
-                Text("\(String(week.year))年第 \(week.week) 周 · 公历年第 \(e.progress(date,lunar:false).day) 天")
-                    .font(.system(size:11)).foregroundStyle(.secondary)
-            }
-            if p.showCapsule { capsule(date) }
-            if p.showHolidayCountdown { holidayCountdown(date) }
-            if p.showNotes {
-                Button { state.toggleNoteEditor(date) } label: {
-                    HStack(spacing:8) {
-                        Image(systemName:"square.and.pencil").foregroundStyle(state.accent)
-                        Text("小记").fontWeight(.medium)
-                        Text(state.note.isEmpty ? "添加当天记录" : state.note.replacingOccurrences(of:"\n",with:" "))
-                            .lineLimit(1).foregroundStyle(state.note.isEmpty ? .secondary : .primary)
-                        Spacer(minLength:0)
-                        Image(systemName:"chevron.right").font(.system(size:9)).foregroundStyle(.secondary)
-                    }.font(.system(size:12)).padding(10)
-                        .background(.primary.opacity(0.045),in:RoundedRectangle(cornerRadius:9))
-                }.buttonStyle(.plain).help("小记 · 点击打开或关闭 · 仅保存在本机")
-            }
-        }
-    }
-    private func moonButton(_ date: Date) -> some View {
-        let moon = MoonPhase(date:date)
-        return Button { moonInfo.toggle() } label: {
-            HStack(spacing:6) { MoonDisc(fraction:moon.fraction).frame(width:28,height:28); Text(moon.name).font(.system(size:10)).foregroundStyle(.secondary) }
-        }.buttonStyle(.plain).popover(isPresented:$moonInfo) {
-            VStack(spacing:12) {
-                Text("月相小窗").font(.headline)
-                MoonDisc(fraction:moon.fraction).frame(width:88,height:88)
-                Text(moon.name).font(.title3)
-                Text("估算月龄 \(moon.age,specifier:"%.1f") 天 · 照亮 \(moon.illumination*100,specifier:"%.0f")%")
-                Text("平均朔望月模型，仅作月相示意，非精密天文预报。") .font(.caption).foregroundStyle(.secondary)
-            }.padding(24).frame(width:300)
-        }
-    }
-    private func capsule(_ date: Date) -> some View {
-        let p = state.engine.progress(date,lunar:state.preferences.lunarProgress)
-        return VStack(spacing:5) {
-            HStack {
-                Text("\(state.preferences.lunarProgress ? "农历" : "公历")年已过 \(p.fraction*100,specifier:"%.1f")%")
-                Spacer()
-                Text("第\(p.day)天 / \(p.total)天").foregroundStyle(.secondary)
-                JellySegments("年度历法",selection:$state.preferences.lunarProgress,options:[("公",false),("农",true)],compact:true).frame(width:62)
-            }.font(.system(size:10))
-            GeometryReader { g in ZStack(alignment:.leading) {
-                Capsule().fill(.primary.opacity(0.07))
-                Capsule().fill(LinearGradient(colors:[state.accent,state.accent.opacity(0.5),.orange.opacity(0.65)],startPoint:.leading,endPoint:.trailing)).frame(width:max(2,g.size.width*p.fraction))
-            } }.frame(height:4)
-        }.padding(.vertical,3)
-    }
-    @ViewBuilder private func holidayCountdown(_ date: Date) -> some View {
-        if let next = state.holidays.nextBreak(after:date,engine:state.engine) {
-            Label("\(state.engine.days(from:date,to:next.date) == 0 ? "今天是" : "距")\(next.name)\(state.engine.days(from:date,to:next.date) == 0 ? "假期" : "还有 \(state.engine.days(from:date,to:next.date)) 天")",systemImage:"calendar.badge.clock").font(.system(size:10)).foregroundStyle(.secondary)
-        } else { Text(state.holidays.coveredYears.contains(state.engine.calendar.component(.year,from:date)) ? "本年已无后续假期 · 下一年度调休安排未收录" : "该年份调休安排未收录 · 节日与节气仍可查询").font(.system(size:10)).foregroundStyle(.secondary) }
     }
     private var footer: some View {
         HStack(spacing:6) {

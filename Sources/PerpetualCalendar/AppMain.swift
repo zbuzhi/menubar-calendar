@@ -28,11 +28,13 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
     var eventHandler: EventHandlerRef?
     var lastSelectionDay: String?
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG || CALENDAR_PREVIEWS
         if let index = ProcessInfo.processInfo.arguments.firstIndex(of:"--render-preview"), ProcessInfo.processInfo.arguments.count > index + 1 {
             NSApp.setActivationPolicy(.accessory)
             PreviewRenderer.render(to:URL(fileURLWithPath:ProcessInfo.processInfo.arguments[index + 1],isDirectory:true)) { NSApp.terminate(nil) }
             return
         }
+        #endif
         NSApp.setActivationPolicy(.accessory)
         state.softwareUpdater.start()
         statusItem = NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)

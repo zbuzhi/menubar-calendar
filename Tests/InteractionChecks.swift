@@ -3,6 +3,17 @@ import SwiftUI
 import PDFKit
 import CalendarCore
 
+/// Wait for observable UI state while servicing both AppKit events and SwiftUI/main-actor work.
+@MainActor func waitForInterface(timeout: TimeInterval = 2, _ condition: () -> Bool) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+        if let event = NSApp.nextEvent(matching:.any,until:.distantPast,inMode:.default,dequeue:true) { NSApp.sendEvent(event) }
+        RunLoop.main.run(until:min(deadline,Date().addingTimeInterval(0.02)))
+        if condition() { return true }
+    } while Date() < deadline
+    return false
+}
+
 @MainActor final class NoteProbeMode: ObservableObject { @Published var editing = false }
 struct NoteRowProbe: View {
     @ObservedObject var mode: NoteProbeMode
@@ -16,24 +27,98 @@ struct NoteRowProbe: View {
 
 /// Uses an isolated .app domain; never sends mouse/keyboard events to other apps.
 @main struct InteractionChecks {
+    // Keep the failing source location visible in optimized, stripped test builds.
+    private static func precondition(_ condition: @autoclosure () -> Bool, _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {
+        if !condition() { fatalError("Interface check failed: \(message())",file:(file),line:line) }
+    }
     @MainActor static func main() throws {
+        setbuf(stdout,nil)
+        let resultIndex = CommandLine.arguments.firstIndex(of:"--result-file")
+        let resultFile = resultIndex.flatMap { index in
+            CommandLine.arguments.indices.contains(index + 1) ? URL(fileURLWithPath:CommandLine.arguments[index + 1]) : nil
+        }
+        var passed = false
+        defer { if passed, let resultFile { try? Data("passed".utf8).write(to:resultFile,options:.atomic) } }
         if CommandLine.arguments.contains("--verify-autosave") {
             let stored = AppState().noteDocument.entries.first?.text ?? ""
             precondition(stored.contains("保留的小记，追加"))
             print("PASS: autosaved text is readable in a separate process")
+            passed = true
             return
         }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         app.finishLaunching()
+        if CommandLine.arguments.contains("--verify-month-paging") {
+            try checkMonthPaging()
+            passed = true
+            return
+        }
         // Keep checks outside a main-queue callback so nested AppKit loops can run autosave tasks.
         try runChecks(app)
+        try checkMonthPaging()
+        try checkNoteCalendarFollowing()
         checkNoteDisclosure()
         try checkRefraction()
+        passed = true
+    }
+    @MainActor static func checkNoteCalendarFollowing() throws {
+        let suite = "org.calendar.note-following." + UUID().uuidString
+        let defaults = UserDefaults(suiteName:suite)!
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let state = AppState(defaults:defaults)
+        let first = state.engine.date(2026,10,24), second = state.engine.date(2026,10,25)
+        state.select(first)
+        precondition(!state.notesFollowCalendarDate)
+        var document = NoteDocument()
+        document.entries = [NoteEntry(date:"2026-10-24",text:"切换前的正文"),
+                            NoteEntry(date:"2026-10-25",text:"次日第一条"),
+                            NoteEntry(date:"2026-10-25",text:"次日第二条")]
+        precondition(state.saveNotes(document))
+        let panel = CalendarPanel(contentRect:NSRect(x:40,y:40,width:470,height:570),styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        let host = NoteHostingView(rootView:NoteEditor(date:first,initialEditingID:document.entries[0].id,fitsWindow:true).environmentObject(state))
+        panel.contentView = host; panel.makeKeyAndOrderFront(nil)
+        defer { panel.orderOut(nil); panel.contentView = nil }
+        func settle() { RunLoop.main.run(until:Date().addingTimeInterval(0.15)); host.layoutSubtreeIfNeeded() }
+        func descendants<T: NSView>(_ view: NSView,_ type: T.Type) -> [T] {
+            (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants($0,type) }
+        }
+        func expectDay(_ date: Date,_ rows: Int) {
+            let title = NoteDateRange(scope:.day,anchor:date,from:date,through:date,engine:state.engine).title(scope:.day,anchor:date,engine:state.engine)
+            let navigation = descendants(host,NoteNativeDateNavigation.Area.self).first!
+            precondition((navigation.subviews.first as? NSButton)?.toolTip == title + " · 选择日期范围")
+            precondition(descendants(host,NoteRowSettings.Area.self).count == rows)
+        }
+        settle()
+        let text = descendants(host,GrowingNoteTextView.self).first!
+        precondition(panel.makeFirstResponder(text))
+        text.insertText("，已保存",replacementRange:NSRange(location:text.string.utf16.count,length:0))
+        state.select(second); settle(); expectDay(first,1)
+        state.preferences.notesFollowCalendarDate = true
+        settle(); expectDay(second,2)
+        precondition(state.noteDocument.entries(date:"2026-10-24").first?.text == "切换前的正文，已保存")
+        precondition(AppState(defaults:defaults).notesFollowCalendarDate)
+        // Calendar following also works after navigating independently inside the note.
+        let navigation = descendants(host,NoteNativeDateNavigation.Area.self).first!
+        (navigation.subviews[2] as! NSButton).performClick(nil)
+        settle(); expectDay(state.engine.date(2026,10,26),0)
+        state.select(first); settle(); expectDay(first,1)
+        state.select(second); settle(); expectDay(second,2)
+        state.preferences.notesFollowCalendarDate = false
+        state.select(first); settle(); expectDay(second,2)
+        precondition(!AppState(defaults:defaults).notesFollowCalendarDate)
+        state.preferences.notesFollowCalendarDate = true
+        settle(); expectDay(first,1)
+        state.today(); settle()
+        expectDay(state.selected,state.noteDocument.entries(date:state.engine.key(state.selected)).count)
+        print("PASS: optional calendar following saves edits, switches visible dates and rows, supports today and independent note navigation, and persists across restarts")
     }
     @MainActor static func checkRefraction() throws {
         let panel = CalendarPanel(contentRect:NSRect(x:40,y:40,width:360,height:80),styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
         let host = NSHostingView(rootView:Text("REFRACTION 0123456789 ABCDEF\n真正的文字镜片折射放大").font(.system(size:20)).foregroundStyle(.black)
             .frame(width:360,height:80,alignment:.topLeading).background(.white).overlay { NoteRefraction(active:true,revision:"fixture") })
         panel.contentView = host; panel.orderFrontRegardless()
@@ -79,6 +164,7 @@ struct NoteRowProbe: View {
         precondition(state.saveNotes(document))
         let notesPanel = CalendarPanel(contentRect:NSRect(x:40,y:40,width:470,height:570),styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         notesPanel.isReleasedWhenClosed = false
+        notesPanel.hidesOnDeactivate = false
         let collapsedHost = NoteHostingView(rootView:NoteEditor(date:state.engine.date(2026,10,24),fitsWindow:true).environmentObject(state))
         notesPanel.contentView = collapsedHost; notesPanel.orderFrontRegardless()
         RunLoop.main.run(until:Date().addingTimeInterval(0.15))
@@ -124,7 +210,7 @@ struct NoteRowProbe: View {
         original.clockTemplate = "{HH}:{mm}:{ss}"
         original.favorites = [SavedFormat(name:"自用",template:"{yyyy}年{M}月{d}日")]
         var oldJSON = try JSONSerialization.jsonObject(with:JSONEncoder().encode(original)) as! [String:Any]
-        for key in ["boldText","glassStyle","glassTint"] { oldJSON.removeValue(forKey:key) }
+        for key in ["boldText","glassStyle","glassTint","notesFollowCalendarDate"] { oldJSON.removeValue(forKey:key) }
         defaults.set(try JSONSerialization.data(withJSONObject:oldJSON),forKey:"preferences.v1")
         defaults.set(["2026-10-24":"保留的小记"],forKey:"notes.v1")
 
@@ -136,6 +222,7 @@ struct NoteRowProbe: View {
         precondition(state.preferences.favorites.first?.name == "自用" && !state.usesBoldText)
         precondition(state.preferences.clock && state.preferences.traditional == "ke")
         precondition(state.preferences.clockTemplate == "{HH}:{mm}:{ss}")
+        precondition(!state.notesFollowCalendarDate)
         state.preferences.boldText = true
         state.preferences.glassStyle = "regular"
         state.preferences.glassTint = 0.4
@@ -200,6 +287,8 @@ struct NoteRowProbe: View {
         let editorWindow = CalendarPanel(contentRect:NSRect(x:0,y:0,width:476,height:600),
                                     styleMask:[.titled,.nonactivatingPanel],backing:.buffered,defer:false)
         editorWindow.isReleasedWhenClosed = false
+        // Match NoteWindowController: switching focus must not hide and dismantle the editor.
+        editorWindow.hidesOnDeactivate = false
         editorWindow.contentView = NSHostingView(rootView:NoteEditor(date:state.engine.date(2026,10,24),initialEditingID:state.noteDocument.entries.first?.id).environmentObject(state))
         NSApp.activate(ignoringOtherApps:true)
         editorWindow.makeKeyAndOrderFront(nil)
@@ -231,7 +320,7 @@ struct NoteRowProbe: View {
                 if let event = app.nextEvent(matching:.any,until:Date().addingTimeInterval(0.05),inMode:.default,dequeue:true) { app.sendEvent(event) }
             } while NSApp.keyWindow !== editorWindow && Date() < focusDeadline
         }
-        precondition(NSApp.keyWindow === editorWindow)
+        precondition(NSApp.keyWindow === editorWindow,"Editor focus: appActive=\(app.isActive), panelKey=\(editorWindow.isKeyWindow), firstResponder=\(String(describing:editorWindow.firstResponder))")
         precondition(editorWindow.makeFirstResponder(text))
         text.insertText("，追加",replacementRange:NSRange(location:text.string.utf16.count,length:0))
         RunLoop.main.run(until:Date().addingTimeInterval(0.05))
@@ -293,7 +382,7 @@ struct NoteRowProbe: View {
         let longEdit = "\n" + (1...22).map { "\($0). 不裁切的长正文，继续书写并完整显示。" }.joined(separator:"\n")
         text.insertText(longEdit,replacementRange:NSRange(location:text.string.utf16.count,length:0))
         RunLoop.main.run(until:Date().addingTimeInterval(0.12))
-        precondition(text.bounds.height > 350)
+        precondition(text.bounds.height > 350,"Long text height: \(text.bounds.height)")
         precondition(text.string.hasSuffix("22. 不裁切的长正文，继续书写并完整显示。"))
         editorWindow.makeKeyAndOrderFront(nil)
         precondition(editorWindow.makeFirstResponder(text))
@@ -311,16 +400,18 @@ struct NoteRowProbe: View {
         repeat {
             if let event = app.nextEvent(matching:.any,until:clickDeadline,inMode:.default,dequeue:true) { app.sendEvent(event) }
         } while Date() < clickDeadline
-        RunLoop.main.run(until:Date().addingTimeInterval(0.2))
-        precondition(!textViews(editorWindow.contentView!).contains(where:{ $0 === text }))
-        precondition(state.noteDocument.entries.first!.text.hasSuffix("输入法完成"))
+        precondition(waitForInterface {
+            !textViews(editorWindow.contentView!).contains(where:{ $0 === text })
+        },"Clicking the header must finish editing; responder=\(String(describing:editorWindow.firstResponder)), hit=\(String(describing:editorWindow.contentView!.hitTest(editorWindow.contentView!.convert(outside,from:nil)))), marked=\(text.hasMarkedText())")
+        precondition(state.noteDocument.entries.first!.text.hasSuffix("输入法完成"),"Click-away must commit and save marked text")
         let countBeforeAdd = state.noteDocument.entries.count
         let addKey = NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:.command,timestamp:0,
                                      windowNumber:editorWindow.windowNumber,context:nil,characters:"n",
                                      charactersIgnoringModifiers:"n",isARepeat:false,keyCode:45)!
         precondition(NSApp.mainMenu!.performKeyEquivalent(with:addKey))
-        RunLoop.main.run(until:Date().addingTimeInterval(0.4))
-        precondition(textViews(editorWindow.contentView!).contains(where:{ $0.string.isEmpty && !$0.isFieldEditor }))
+        precondition(waitForInterface {
+            textViews(editorWindow.contentView!).contains(where:{ $0.string.isEmpty && !$0.isFieldEditor && editorWindow.firstResponder === $0 })
+        },"Command-N must focus an empty editor; windowVisible=\(editorWindow.isVisible), addCallback=\(state.onNoteAdd != nil)")
         editorWindow.close(); editorWindow.contentView = nil
         RunLoop.main.run(until:Date().addingTimeInterval(0.05))
         precondition(AppState().noteDocument.entries(date:"2026-10-24").first?.text.hasSuffix("输入法完成") == true)
@@ -353,6 +444,7 @@ struct NoteRowProbe: View {
 
         let tabWindow = CalendarPanel(contentRect:NSRect(x:0,y:0,width:420,height:40),styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         tabWindow.isReleasedWhenClosed = false
+        tabWindow.hidesOnDeactivate = false
         let strip = NoteTabStrip.StripView(frame:NSRect(x:0,y:0,width:420,height:32))
         var orderedTabs = NoteDocument()
         let movingID = orderedTabs.tags[0].id
@@ -375,6 +467,7 @@ struct NoteRowProbe: View {
         tabWindow.close()
         let probeWindow = CalendarPanel(contentRect:NSRect(x:0,y:0,width:380,height:180),styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         probeWindow.isReleasedWhenClosed = false
+        probeWindow.hidesOnDeactivate = false
         let mode = NoteProbeMode()
         let probe = NSHostingView(rootView:NoteRowProbe(mode:mode,entry:NoteEntry(date:"2026-10-24",text:"普通小记首行\n第二行保持相同高度")).environmentObject(state))
         probeWindow.contentView = probe; probeWindow.orderFrontRegardless()

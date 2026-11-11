@@ -35,6 +35,8 @@ import ServiceManagement
     @Published var holidayStatus = "内置 2026 年调休 · 首次展开时检查更新"
     @Published var holidayUpdating = false
     private var holidayUpdatesEnabled = false
+    private var holidayUpdatingAll = false
+    private var holidayRefreshID = UUID()
     private let holidayRepository = HolidayRepository()
     let softwareUpdater = SoftwareUpdater()
     var onNotePinChange: (() -> Void)?
@@ -90,6 +92,7 @@ import ServiceManagement
         defaults.set([clamped.width,clamped.height],forKey:"notes.editorSize")
     }
     var usesBoldText: Bool { preferences.boldText ?? false }
+    var notesFollowCalendarDate: Bool { preferences.notesFollowCalendarDate ?? false }
     func textWeight(_ normal: Font.Weight = .regular) -> Font.Weight { usesBoldText ? .bold : normal }
     var effectiveIconSize: Double { CalendarMetrics.iconSize(preferences.iconSize) }
     var calendarPanelHeight: CGFloat {
@@ -103,14 +106,20 @@ import ServiceManagement
             let icons = p.zodiac != "hidden" || (p.termIcons && week.contains { SolarTerms.on($0,engine:engine) != nil })
             gridHeight += p.compact ? (icons ? 62 : p.lunar ? 47 : 36) : (icons ? 74 : 58)
         }
-        var detailHeight = 73.0
-        if p.showGanZhi { detailHeight += 23 }
-        if p.showDayProgress { detailHeight += 43 }
-        if p.showWeek { detailHeight += 23 }
-        if p.showCapsule { detailHeight += 36 }
-        if p.showHolidayCountdown { detailHeight += 23 }
-        if p.showNotes { detailHeight += 44 }
-        return min(screen - 65, 116 + gridHeight + detailHeight + (comparison ? 160 : 0))
+        return min(screen - 65, 116 + gridHeight + calendarDateDetailsHeight + (comparison ? 160 : 0))
+    }
+    var calendarDateDetailsHeight: CGFloat {
+        let p = preferences
+        var height = 42.0
+        if p.lunar || p.showYear || p.showGanZhi { height += 22 }
+        if p.showDayProgress { height += 50 }
+        if p.showCapsule {
+            height += 36
+            if p.showWeek && p.lunarProgress { height += 22 }
+        } else if p.showWeek { height += 22 }
+        if p.showHolidayCountdown { height += 27 }
+        if p.showNotes { height += 40 }
+        return height
     }
     var workspaceHeight: CGFloat {
         if settingsPresented && settingsDock == .below, let c = calendarViewportHeight, let s = settingsViewportHeight { return c + s + 1 }
@@ -191,15 +200,26 @@ import ServiceManagement
     }
     func refreshHolidays(force: Bool = false) {
         holidayUpdatesEnabled = true
+        guard !holidayUpdatingAll else { return }
+        let refreshID = UUID()
+        holidayRefreshID = refreshID
+        holidayUpdatingAll = force
+        holidayUpdating = true
         let year = selectedYear
         Task {
-            holidayUpdating = true
+            defer {
+                if holidayRefreshID == refreshID { holidayUpdating = false; holidayUpdatingAll = false }
+            }
             let cached = await holidayRepository.cachedRecords()
             applyHolidayRecords(cached)
-            let record = await holidayRepository.load(year:year,force:force)
+            let status: String
+            if force {
+                status = await holidayRepository.refreshAll().summary
+            } else {
+                status = await holidayRepository.load(year:year).summary
+            }
             applyHolidayRecords(await holidayRepository.cachedRecords())
-            if selectedYear == year { holidayStatus = record.summary }
-            holidayUpdating = false
+            if holidayRefreshID == refreshID && (force || selectedYear == year) { holidayStatus = status }
         }
     }
     private func applyHolidayRecords(_ records: [HolidayYearRecord]) {

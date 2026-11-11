@@ -10,6 +10,9 @@ app="$PWD/dist/不知时日历.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 bin_path=$(swift build "${architectures[@]}" -c release --show-bin-path --disable-sandbox --cache-path "$PWD/.build/shared-cache" --config-path "$PWD/.build/config" --security-path "$PWD/.build/security" --manifest-cache local)
 cp "$bin_path/PerpetualCalendar" "$app/Contents/MacOS/PerpetualCalendar.new"
+# Remove local symbol tables from the executable before signing, keeping exported symbols
+# and the Swift/Objective-C runtime metadata used by the app and its frameworks.
+xcrun strip -x "$app/Contents/MacOS/PerpetualCalendar.new"
 mv -f "$app/Contents/MacOS/PerpetualCalendar.new" "$app/Contents/MacOS/PerpetualCalendar"
 python3 scripts/build-icon.py "$app"
 cp Resources/HolidayData-LICENSE.txt "$app/Contents/Resources/HolidayData-LICENSE.txt"

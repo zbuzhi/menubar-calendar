@@ -1,3 +1,4 @@
+#if DEBUG || CALENDAR_PREVIEWS
 import AppKit
 import SwiftUI
 import CalendarCore
@@ -11,6 +12,10 @@ import CalendarCore
         let tab: String
         var workspace = false
         var calendar = false
+        var details = false
+        var fullDetails = false
+        var lunarDetails = false
+        var weekOnly = false
         var maximumIcons = false
         var below = false
         var note = false
@@ -80,6 +85,12 @@ import CalendarCore
             Job(name:"calendar-light",theme:"light",material:"solid",tab:"",calendar:true),
             Job(name:"calendar-bold",theme:"light",material:"solid",tab:"",calendar:true,bold:true),
             Job(name:"calendar-dark",theme:"dark",material:"solid",tab:"",calendar:true),
+            Job(name:"calendar-full-details",theme:"light",material:"solid",tab:"",calendar:true,fullDetails:true),
+            Job(name:"date-details-default",theme:"light",material:"solid",tab:"",details:true),
+            Job(name:"date-details-full",theme:"light",material:"solid",tab:"",details:true,fullDetails:true),
+            Job(name:"date-details-dark",theme:"dark",material:"solid",tab:"",details:true,fullDetails:true),
+            Job(name:"date-details-lunar",theme:"light",material:"solid",tab:"",details:true,fullDetails:true,lunarDetails:true),
+            Job(name:"date-details-week-only",theme:"light",material:"solid",tab:"",details:true,fullDetails:true,weekOnly:true),
             Job(name:"settings",theme:"light",material:"solid",tab:"appearance"),
             Job(name:"formats",theme:"light",material:"solid",tab:"formats"),
             Job(name:"formats-dark",theme:"dark",material:"solid",tab:"formats"),
@@ -109,6 +120,16 @@ import CalendarCore
             state.preferences.boldText = job.bold
             state.preferences.accent = job.accent
             state.preferences.iconSize = job.maximumIcons ? 16 : 6
+            state.preferences.zodiac = job.maximumIcons ? "icon" : "hidden"
+            state.preferences.termIcons = job.maximumIcons
+            state.preferences.showGanZhi = job.fullDetails
+            state.preferences.showDayProgress = job.fullDetails
+            state.preferences.lunarProgress = job.lunarDetails
+            state.preferences.showCapsule = !job.weekOnly
+            if job.calendar || job.details {
+                state.selected = state.engine.date(2026,11,11)
+                state.month = state.selected
+            }
             state.settingsPresented = job.workspace; state.settingsOnLeft = false; state.settingsWidth = 620
             state.settingsDock = job.below ? .below : .right
             state.calendarViewportHeight = job.below ? 380 : nil
@@ -159,6 +180,11 @@ import CalendarCore
             } else if job.workspace {
                 content = AnyView(WorkspaceView().environmentObject(state))
                 size = NSSize(width:job.below ? 620 : 1041,height:state.workspaceHeight)
+            } else if job.details {
+                content = AnyView(CalendarDateDetails().padding(16).frame(width:420,alignment:.topLeading)
+                    .frame(maxHeight:.infinity,alignment:.top).background(PanelBackground())
+                    .environmentObject(state).preferredColorScheme(state.colorScheme))
+                size = NSSize(width:420,height:state.calendarDateDetailsHeight+32)
             } else if job.calendar {
                 content = AnyView(CalendarView().environmentObject(state))
                 size = NSSize(width:420,height:state.calendarPanelHeight)
@@ -224,3 +250,4 @@ import CalendarCore
         return true
     }
 }
+#endif

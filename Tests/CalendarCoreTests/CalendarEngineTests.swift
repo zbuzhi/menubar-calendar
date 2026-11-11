@@ -239,7 +239,8 @@ checks.testThemeAccentsRemainReadable(); print("Checked: accent and selection te
 checkNoteRanges()
 checkNoteQueries()
 checkNoteActions()
+checkMonthSwipes()
 await checkHolidayRepository()
 checkBelowPlacement()
-if failures > 0 { print("FAILED: \(failures) assertions"); exit(1) }; print("All 21 check groups passed.")
+if failures > 0 { print("FAILED: \(failures) assertions"); exit(1) }; print("All 22 check groups passed.")
 } }

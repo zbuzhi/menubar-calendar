@@ -107,6 +107,7 @@ python3 scripts/build-icon.py .build/static-brand.app --static-only
 - 十二星座独立绘制图形，4—16 pt 滑杆、文字/图标/隐藏，星座与节气图标左右顺序可换。
 - 单个图标居中，无图标时压缩日期行；可选详情关闭时面板同步缩短。
 - 鼠标悬停滑块：关闭/轻柔/果冻，点击日期更新详情，尊重系统减少动态效果。
+- 月历区域支持触摸板两指横滑：月历跟随手势移动，松手滑入相邻月份；短滑或取消时回弹，单次滑动只翻一月，惯性与纵向滚动不会连续翻月，遵循系统减少动态效果设置。
 - 日期详情：节气和星座第几天、下一节气倒计时、周数与公历年内天数。
 - 农历/公历年度进度切换，正确计算闰年、闰月年的长度。
 - 月相示意与详情、支持彩色标签的小记、简单 Markdown 展示、自动保存，以及 PDF／Markdown／JSON 导出。
@@ -169,13 +170,15 @@ swift run --disable-sandbox CalendarCoreChecks
 
 ```sh
 ./scripts/check.sh
-# 由应用渲染自己的界面（不是桌面截图），输出浅色/深色月历、设置、格式编辑器与并排设置：
-dist/不知时日历.app/Contents/MacOS/PerpetualCalendar --render-preview "$PWD/output/previews"
+# 用开发构建渲染应用自己的界面（不是桌面截图），输出浅色/深色月历、设置、格式编辑器与并排设置：
+swift run --disable-sandbox -c debug PerpetualCalendar --render-preview "$PWD/output/previews"
+# 需要 release 优化级别的布局预览时，显式包含开发截图工具：
+swift run --disable-sandbox -c release -Xswiftc -DCALENDAR_PREVIEWS PerpetualCalendar --render-preview "$PWD/output/previews-release"
 # 重新生成代码绘制的图标：
 swift scripts/make-icon.swift .build/AppIcon.iconset Resources/AppIcon.icns
 ```
 
-布局预览使用纯色背景，以便准确检查文字与间距；真实玻璃效果需要在桌面运行时查看。当前已通过核心检查、release 构建及签名校验，并核对了原生界面渲染；桌面截图接口超时，因此尚未完成全部鼠标交互、登录自启及旧系统的实机验证。
+默认 release 构建不包含 `PreviewRenderer`、截图场景或 `--render-preview` 入口；开发构建通过 `DEBUG` 保留该工具，release 预览需显式定义 `CALENDAR_PREVIEWS`。布局预览使用纯色背景，以便准确检查文字与间距；真实玻璃效果需要在桌面运行时查看。当前已通过核心检查、release 构建及签名校验，并核对了原生界面渲染；桌面截图接口超时，因此尚未完成全部鼠标交互、登录自启及旧系统的实机验证。
 
 ## README 配图
 
@@ -193,9 +196,11 @@ python3 scripts/render-readme-media.py
 
 ```sh
 python3 Tests/check-interface.py
+# 单独验证触摸板切月、回弹、惯性隔离、跨年边界与减少动态效果：
+python3 Tests/check-interface.py --verify-month-paging
 python3 Tests/check-software-updates.py <包含已签名 appcast.xml 的发布目录>
 ```
 
-界面检查使用独立应用偏好域，覆盖菜单栏开关、设置入口与旧设置兼容；更新检查覆盖页内加载、结果与签名错误，不安装更新。
+界面检查使用独立应用偏好域，通过系统应用启动流程取得正常窗口焦点；测试窗口与正式小记窗口一样保持失焦显示，追加编辑和切月检查等待实际界面状态完成。检查使用优化并去符号后的代码，失败时仍报告源码位置，并通过显式成功文件判断整套流程完成，避免把启动命令成功当作检查通过。覆盖菜单栏开关、设置入口与旧设置兼容；更新检查覆盖页内加载、结果与签名错误，不安装更新。
 
 设置按外观、日历、时间、通用、更新分类。外观支持字体加粗；macOS 26 起可切换原生玻璃风格并调节主题染色。底部时钟默认显示时分秒和小字时辰，秒数使用平滑滚动过渡，并遵循系统减少动态效果设置。
